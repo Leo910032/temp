@@ -7,7 +7,7 @@ import Position from "../elements/Position";
 import Link from "next/link";
 import AddIconModal from "../elements/AddIconModal";
 import EditIconModal from "../elements/EditIconModal";
-import { testForActiveSession } from "@/lib/authentication/testForActiveSession";
+import { useAuth } from "@/contexts/AuthContext";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { fireApp } from "@/important/firebase";
 import { updateSocials } from "@/lib/update data/updateSocials";
@@ -15,6 +15,7 @@ import { updateSocials } from "@/lib/update data/updateSocials";
 export const SocialContext = React.createContext();
 
 export default function SocialSetting() {
+    const { currentUser } = useAuth(); // Get current user from Firebase Auth
     const [addIconModalOpen, setAddIconModalOpen] = useState(false);
     const [settingIconModalOpen, setSettingIconModalOpen] = useState({
         status: false,
@@ -27,31 +28,65 @@ export default function SocialSetting() {
 
     useEffect(() => {
         function fetchLinks() {
-            const currentUser = testForActiveSession();
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
+            // Only fetch if user is authenticated
+            if (!currentUser) return;
 
-            onSnapshot(docRef, (docSnap) => {
+            const collectionRef = collection(fireApp, "AccountData");
+            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
+
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const { socials } = docSnap.data();
                     setSocialsArray(socials ? socials : []);
+                } else {
+                    // Document doesn't exist, set empty array
+                    setSocialsArray([]);
                 }
+            }, (error) => {
+                console.error("Error fetching socials:", error);
+                setSocialsArray([]);
             });
+
+            // Return cleanup function
+            return unsubscribe;
         }
 
-        fetchLinks();
-    }, []);
+        const unsubscribe = fetchLinks();
+        
+        // Cleanup on unmount or user change
+        return () => {
+            if (unsubscribe && typeof unsubscribe === 'function') {
+                unsubscribe();
+            }
+        };
+    }, [currentUser]); // Depend on currentUser
 
     useEffect(() => {
         if (!hasLoaded) {
             setHasLoaded(true);
             return;
         }
-        updateSocials(socialsArray);
-    }, [socialsArray, hasLoaded]);
+        
+        // Only update if user is authenticated
+        if (currentUser) {
+            updateSocials(socialsArray, currentUser.uid);
+        }
+    }, [socialsArray, hasLoaded, currentUser]);
+
+    // Don't render if user is not authenticated
+    if (!currentUser) {
+        return null;
+    }
 
     return (
-        <SocialContext.Provider value={{ socialsArray, setSocialsArray, setSettingIconModalOpen, setAddIconModalOpen, settingIconModalOpen }}>
+        <SocialContext.Provider value={{ 
+            socialsArray, 
+            setSocialsArray, 
+            setSettingIconModalOpen, 
+            setAddIconModalOpen, 
+            settingIconModalOpen,
+            currentUser // Add currentUser to context for child components
+        }}>
             <div className="w-full my-4 px-2" id="Settings--SocialLinks">
                 <div className="flex items-center gap-3 py-4">
                     <Image

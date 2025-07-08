@@ -1,14 +1,14 @@
 "use client"
 import { useDebounce } from "@/LocalHooks/useDebounce";
 import { fireApp } from "@/important/firebase";
-import { testForActiveSession } from "@/lib/authentication/testForActiveSession";
+import { useAuth } from "@/contexts/AuthContext";
 import { updateCustomMetaData } from "@/lib/update data/updateSocials";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
 export default function SEO() {
-
+    const { currentUser } = useAuth(); // Get current user from Firebase Auth
     const [metaTitle, setMetaTitle] = useState(null);
     const [metaDescription, setMetaDescription] = useState(null);
     const debounceMetaTitle = useDebounce(metaTitle, 500);
@@ -23,36 +23,65 @@ export default function SEO() {
             return;
         }
 
+        if (!currentUser) {
+            return;
+        }
+
         updateCustomMetaData({
             title: metaTitle,
             description: metaDescription,
-        });
-    }, [debounceMetaTitle, debounceMetaDescription]);
+        }, currentUser.uid); // Pass the Firebase Auth UID
+    }, [debounceMetaTitle, debounceMetaDescription, currentUser]);
 
     useEffect(() => {
         function fetchLinks() {
-            const currentUser = testForActiveSession();
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
+            // Only fetch if user is authenticated
+            if (!currentUser) return;
 
-            onSnapshot(docRef, (docSnap) => {
+            const collectionRef = collection(fireApp, "AccountData");
+            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
+
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const { metaData } = docSnap.data();
 
                     if (metaData) {
                         setMetaTitle(metaData.title);
                         setMetaDescription(metaData.description);
-                    }else{
+                    } else {
                         setMetaTitle("");
                         setMetaDescription("");
                     }
-
+                } else {
+                    // Document doesn't exist, set empty values
+                    setMetaTitle("");
+                    setMetaDescription("");
                 }
+            }, (error) => {
+                console.error("Error fetching metadata:", error);
+                // Set empty values on error
+                setMetaTitle("");
+                setMetaDescription("");
             });
+
+            // Return cleanup function
+            return unsubscribe;
         }
 
-        fetchLinks();
-    }, []);
+        const unsubscribe = fetchLinks();
+        
+        // Cleanup on unmount or when currentUser changes
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        };
+    }, [currentUser]);
+
+    // Don't render if user is not authenticated
+    if (!currentUser) {
+        return null;
+    }
 
     return (
         <div className="w-full my-4 px-2" id="Settings--SEO">
@@ -79,7 +108,7 @@ export default function SEO() {
                                         className="placeholder-transparent font-semibold peer px-0 sm:text-base text-sm leading-[48px] placeholder:leading-[48px] rounded-xl block pt-6 pb-2 w-full bg-chalk text-black transition duration-75 ease-out !outline-none bg-transparent"
                                         type="text"
                                         value={metaTitle ? metaTitle : ""}
-                                        onChange={(e)=>setMetaTitle(e.target.value)}
+                                        onChange={(e) => setMetaTitle(e.target.value)}
                                     />
                                     <label
                                         className="absolute pointer-events-none text-base text-concrete transition-all transform -translate-y-2.5 scale-[0.85] top-[13px] origin-[0] peer-placeholder-shown:scale-100 peer-placeholder-shown:translate-y-1 peer-placeholder-shown:tracking-normal peer-focus:scale-[0.85] peer-focus:-translate-y-2.5 max-w-[calc(100%-16px)] truncate"
@@ -100,7 +129,7 @@ export default function SEO() {
                                         className="placeholder-transparent font-semibold peer px-0 sm:text-base text-sm leading-[48px] placeholder:leading-[48px] rounded-xl block pt-6 pb-2 w-full bg-chalk text-black transition duration-75 ease-out !outline-none bg-transparent"
                                         type="text"
                                         value={metaDescription ? metaDescription : ""}
-                                        onChange={(e)=>setMetaDescription(e.target.value)}
+                                        onChange={(e) => setMetaDescription(e.target.value)}
                                     />
                                     <label
                                         className="absolute pointer-events-none text-base text-concrete transition-all transform -translate-y-2.5 scale-[0.85] top-[13px] origin-[0] peer-placeholder-shown:scale-100 peer-placeholder-shown:translate-y-1 peer-placeholder-shown:tracking-normal peer-focus:scale-[0.85] peer-focus:-translate-y-2.5 max-w-[calc(100%-16px)] truncate"

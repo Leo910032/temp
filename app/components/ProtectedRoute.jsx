@@ -1,5 +1,4 @@
-// This before was Checksession component but after it was decided to have firebase complety manage the session and auth this became components/ProtectedRoute.jsx
-// 
+// components/ProtectedRoute.jsx
 "use client"
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';

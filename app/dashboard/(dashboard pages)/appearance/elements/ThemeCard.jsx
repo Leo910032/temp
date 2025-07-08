@@ -1,6 +1,6 @@
 "use client"
 import { fireApp } from "@/important/firebase";
-import { testForActiveSession } from "@/lib/authentication/testForActiveSession";
+import { useAuth } from "@/contexts/AuthContext";
 import { updateTheme, updateThemeTextColour } from "@/lib/update data/updateTheme";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
@@ -8,15 +8,19 @@ import { useEffect, useState } from "react";
 import { FaCheck } from "react-icons/fa6";
 
 export default function ThemeCard({ type, pic, text }) {
+    const { currentUser } = useAuth(); // Get current user from Firebase Auth
     const [isSelectedTheme, setIsSelectedTheme] = useState(false);
     const [themeColor, setThemeColor] = useState("");
 
     const specialThemes = ["New Mario", "Matrix"];
 
     const handleUpdateTheme = async() => {
-        await updateTheme(text ? text : "Custom", themeColor);
+        // Only update if user is authenticated
+        if (!currentUser) return;
+        
+        await updateTheme(text ? text : "Custom", themeColor, currentUser.uid);
         if(!specialThemes.includes(text)) return;
-        await updateThemeTextColour(themeColor);
+        await updateThemeTextColour(themeColor, currentUser.uid);
     }
 
     useEffect(() => {
@@ -46,20 +50,39 @@ export default function ThemeCard({ type, pic, text }) {
     
     useEffect(() => {
         function fetchTheme() {
-            const currentUser = testForActiveSession();
+            // Only fetch if user is authenticated
+            if (!currentUser) return;
+
             const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
+            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
         
-            onSnapshot(docRef, (docSnap) => {
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const { selectedTheme } = docSnap.data();
                     setIsSelectedTheme(selectedTheme === text);
                 }
+            }, (error) => {
+                console.error("Error fetching theme:", error);
             });
+
+            // Return cleanup function
+            return unsubscribe;
         }
         
-        fetchTheme();
-    }, [text]);
+        const unsubscribe = fetchTheme();
+        
+        // Cleanup subscription on unmount or when currentUser changes
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        };
+    }, [text, currentUser]); // Depend on currentUser
+
+    // Don't render if user is not authenticated
+    if (!currentUser) {
+        return null;
+    }
 
     return (
         <>

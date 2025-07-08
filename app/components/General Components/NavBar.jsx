@@ -1,6 +1,6 @@
 "use client"
 import { fireApp } from "@/important/firebase";
-import { testForActiveSession } from "@/lib/authentication/testForActiveSession";
+import { useAuth } from "@/contexts/AuthContext";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
 import Link from "next/link";
@@ -14,6 +14,7 @@ export const NavContext = React.createContext();
 
 export default function NavBar() {
     const router = usePathname();
+    const { currentUser } = useAuth(); // Get current user from Firebase Auth
     const [activePage, setActivePage] = useState();
     const [profilePicture, setProfilePicture] = useState(null);
     const [username, setUsername] = useState("");
@@ -23,7 +24,7 @@ export default function NavBar() {
     const profileCardRef = useRef(null);
     const shareCardRef = useRef(null);
 
-    const handleShowProfileCard = () =>{
+    const handleShowProfileCard = () => {
         if (username === "") {
             return;
         }
@@ -31,7 +32,7 @@ export default function NavBar() {
         setShowShareCard(false);
     }
 
-    const handleShowShareCard = () =>{
+    const handleShowShareCard = () => {
         if (username === "") {
             return;
         }
@@ -59,7 +60,7 @@ export default function NavBar() {
 
     useEffect(() => {
         const handleClickOutside = (event) => {
-            if (profileCardRef.current && !profileCardRef.current.contains(event.target)) {
+            if (shareCardRef.current && !shareCardRef.current.contains(event.target)) {
                 setShowShareCard(false);
             }
         };
@@ -77,44 +78,64 @@ export default function NavBar() {
 
     useEffect(() => {
         async function fetchProfilePicture() {
-            const currentUser = testForActiveSession();
+            // Only fetch if user is authenticated
+            if (!currentUser) return;
+
             const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
+            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
 
-            const myData = await fetchUserData(currentUser);
-            const { username } = myData;
-            setUsername(username);
-            setMyLink(`https://mylinks.fabiconcept.online/${username}`);
+            try {
+                // Fetch user data using Firebase Auth UID
+                const myData = await fetchUserData(currentUser.uid);
+                const { username } = myData;
+                setUsername(username);
+                setMyLink(`https://mylinks.fabiconcept.online/${username}`);
 
-            onSnapshot(docRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const { profilePhoto, displayName } = docSnap.data();
+                // Set up real-time listener
+                const unsubscribe = onSnapshot(docRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const { profilePhoto, displayName } = docSnap.data();
 
-                    if (profilePhoto !== '') {
-                        setProfilePicture(
-                            <Image
-                                src={`${profilePhoto}`}
-                                alt="profile"
-                                height={1000}
-                                width={1000}
-                                className="min-w-full h-full object-cover"
-                                priority
-                            />
-                        );
-                    } else {
-                        setProfilePicture(
-                            <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
-                                <span className="text-3xl font-semibold uppercase">
-                                    {displayName.split('')[0]}
-                                </span>
-                            </div>
-                        );
+                        if (profilePhoto !== '') {
+                            setProfilePicture(
+                                <Image
+                                    src={`${profilePhoto}`}
+                                    alt="profile"
+                                    height={1000}
+                                    width={1000}
+                                    className="min-w-full h-full object-cover"
+                                    priority
+                                />
+                            );
+                        } else {
+                            setProfilePicture(
+                                <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                                    <span className="text-3xl font-semibold uppercase">
+                                        {displayName ? displayName.split('')[0] : 'U'}
+                                    </span>
+                                </div>
+                            );
+                        }
                     }
-                }
-            });
+                });
+
+                // Return cleanup function
+                return unsubscribe;
+            } catch (error) {
+                console.error("Error fetching user data:", error);
+                // Set default profile picture on error
+                setProfilePicture(
+                    <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                        <span className="text-3xl font-semibold uppercase">
+                            {currentUser.email ? currentUser.email.split('')[0] : 'U'}
+                        </span>
+                    </div>
+                );
+            }
         }
+
         fetchProfilePicture();
-    }, []);
+    }, [currentUser]); // Depend on currentUser instead of empty array
 
     useEffect(() => {
         switch (router) {
@@ -135,9 +156,23 @@ export default function NavBar() {
                 break;
         }
     }, [router]);
+
+    // Don't render if user is not authenticated
+    if (!currentUser) {
+        return null;
+    }
     
     return (
-        <NavContext.Provider value={{ username, myLink, profilePicture, showProfileCard, setShowProfileCard, showShareCard, setShowShareCard }}>
+        <NavContext.Provider value={{ 
+            username, 
+            myLink, 
+            profilePicture, 
+            showProfileCard, 
+            setShowProfileCard, 
+            showShareCard, 
+            setShowShareCard,
+            currentUser // Add currentUser to context for child components
+        }}>
             <div className="w-full justify-between flex items-center rounded-[3rem] py-3 sticky top-0 z-[9999999999] px-3 mx-auto bg-white border backdrop-blur-lg">
                 <div className="flex items-center gap-8">
                     <Link href={'/dashboard'} className="ml-3">

@@ -46,6 +46,7 @@ const nextConfig = {
       '@/hooks': path.resolve(__dirname, 'hooks'),
       '@/LocalHooks': path.resolve(__dirname, 'LocalHooks'),
       '@/lib': path.resolve(__dirname, 'lib'),
+      '@/contexts': path.resolve(__dirname, 'contexts'),
       '@/utils': path.resolve(__dirname, 'utils'),
       '@/login': path.resolve(__dirname, 'app/login'),
       '@/signup': path.resolve(__dirname, 'app/signup'),

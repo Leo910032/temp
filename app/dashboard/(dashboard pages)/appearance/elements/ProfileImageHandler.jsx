@@ -1,4 +1,5 @@
 "use client"
+import { useAuth } from "@/contexts/AuthContext";
 import { generateUniqueId } from "@/lib/utilities";
 import Image from "next/image";
 import { useRef, useState } from "react";
@@ -8,10 +9,10 @@ import { FaCheck, FaX } from "react-icons/fa6";
 import { appStorage, fireApp } from "@/important/firebase";
 import { toast } from "react-hot-toast";
 import { useEffect } from "react";
-import { testForActiveSession } from "@/lib/authentication/testForActiveSession";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 
 export default function ProfileImageManager() {
+    const { currentUser } = useAuth(); // Get current user from Firebase Auth
     const [uploadedPhoto, setUploadedPhoto] = useState('');
     const [uploadedPhotoPreview, setUploadedPhotoPreview] = useState('');
     const [profilePicture, setProfilePicture] = useState(null);
@@ -53,10 +54,14 @@ export default function ProfileImageManager() {
     }
 
     const handleUpdateUserInfo = async () => {
+        if (!currentUser) {
+            throw new Error("User not authenticated");
+        }
+
         setIsLoading(true);
         try {
             const getImageUrl = await handleUploadPhoto();
-            await updateProfilePhoto(getImageUrl);
+            await updateProfilePhoto(getImageUrl, currentUser.uid); // Pass user ID
             setIsLoading(false);
 
             handleReset();
@@ -67,9 +72,14 @@ export default function ProfileImageManager() {
     }
 
     const handleRemoveProfilePicture = async () => {
+        if (!currentUser) {
+            toast.error("User not authenticated");
+            return;
+        }
+
         setIsRemoving(true);
         try {
-            await updateProfilePhoto("");
+            await updateProfilePhoto("", currentUser.uid); // Pass user ID
             setIsRemoving(false);
         } catch (error) {
             setIsRemoving(false);
@@ -111,15 +121,17 @@ export default function ProfileImageManager() {
 
     useEffect(() => {
         function fetchProfilePicture() {
-            const currentUser = testForActiveSession();
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
+            // Only fetch if user is authenticated
+            if (!currentUser) return;
 
-            onSnapshot(docRef, (docSnap) => {
+            const collectionRef = collection(fireApp, "AccountData");
+            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
+
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const { profilePhoto, displayName } = docSnap.data();
 
-                    if (profilePhoto !== '') {
+                    if (profilePhoto && profilePhoto !== '') {
                         setProfilePicture(
                             <Image
                                 src={`${profilePhoto}`}
@@ -134,16 +146,42 @@ export default function ProfileImageManager() {
                         setProfilePicture(
                             <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
                                 <span className="text-3xl font-semibold uppercase">
-                                    {displayName.split('')[0]}
+                                    {displayName ? displayName.split('')[0] : 
+                                     currentUser.email ? currentUser.email.split('')[0] : 'U'}
                                 </span>
                             </div>
                         );
                     }
+                } else {
+                    // Set default profile picture if document doesn't exist
+                    setProfilePicture(
+                        <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                            <span className="text-3xl font-semibold uppercase">
+                                {currentUser.email ? currentUser.email.split('')[0] : 'U'}
+                            </span>
+                        </div>
+                    );
                 }
             });
+
+            // Return cleanup function
+            return unsubscribe;
         }
-        fetchProfilePicture();
-    }, []);
+
+        const unsubscribe = fetchProfilePicture();
+        
+        // Cleanup subscription on unmount or currentUser change
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        };
+    }, [currentUser]); // Depend on currentUser
+
+    // Don't render if user is not authenticated
+    if (!currentUser) {
+        return null;
+    }
 
     return (
         <div className="flex w-full p-6 items-center gap-4">

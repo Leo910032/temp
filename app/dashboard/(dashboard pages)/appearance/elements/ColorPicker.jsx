@@ -2,13 +2,14 @@
 
 import { useDebounce } from "@/LocalHooks/useDebounce";
 import { fireApp } from "@/important/firebase";
-import { testForActiveSession } from "@/lib/authentication/testForActiveSession";
+import { useAuth } from "@/contexts/AuthContext";
 import { updateThemeBackgroundColor, updateThemeBtnColor, updateThemeBtnFontColor, updateThemeBtnShadowColor, updateThemeTextColour } from "@/lib/update data/updateTheme";
 import { isValidHexCode } from "@/lib/utilities";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 
 export default function ColorPicker({colorFor}) {
+    const { currentUser } = useAuth(); // Get current user from Firebase Auth
     const [colorText, setColorText] = useState(colorFor === 4 ? "#000000" : "#e8edf5");
     const debounceColor = useDebounce(colorText, 500);
     const [validColor, setValidColor] = useState(1);
@@ -16,25 +17,28 @@ export default function ColorPicker({colorFor}) {
     const colorPickRef = useRef();
 
     const handleUpdateTheme = async(text) => {
+        // Only update if user is authenticated
+        if (!currentUser) return;
+
         switch (colorFor) {
             case 0:
-                await updateThemeBackgroundColor(text);
+                await updateThemeBackgroundColor(text, currentUser.uid);
                 break;
             case 1:
-                await updateThemeBtnColor(text);
+                await updateThemeBtnColor(text, currentUser.uid);
                 break;
             case 2:
-                await updateThemeBtnFontColor(text);
+                await updateThemeBtnFontColor(text, currentUser.uid);
                 break;
             case 3:
-                await updateThemeBtnShadowColor(text);
+                await updateThemeBtnShadowColor(text, currentUser.uid);
                 break;
             case 4:
-                await updateThemeTextColour(text);
+                await updateThemeTextColour(text, currentUser.uid);
                 break;
         
             default:
-                await updateThemeBackgroundColor(text);
+                await updateThemeBackgroundColor(text, currentUser.uid);
                 break;
         }
     }
@@ -53,23 +57,25 @@ export default function ColorPicker({colorFor}) {
     
             handleUpdateTheme(colorText);
         }
-    }, [debounceColor]);
+    }, [debounceColor, currentUser]);
 
     useEffect(() => {
-        if (!validColor) {
+        if (!validColor || !currentUser) {
             return;
         }
 
         handleUpdateTheme(colorText);
-    }, [validColor]);
+    }, [validColor, currentUser]);
 
     useEffect(() => {
         function fetchTheme() {
-            const currentUser = testForActiveSession();
+            // Only fetch if user is authenticated
+            if (!currentUser) return;
+
             const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
+            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
         
-            onSnapshot(docRef, (docSnap) => {
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const { backgroundColor, btnShadowColor, btnFontColor, btnColor, themeTextColour } = docSnap.data();
                     switch (colorFor) {
@@ -95,10 +101,25 @@ export default function ColorPicker({colorFor}) {
                     }
                 }
             });
+
+            // Return cleanup function
+            return unsubscribe;
         }
         
-        fetchTheme();
-    }, [colorFor]);
+        const unsubscribe = fetchTheme();
+        
+        // Cleanup on unmount or when currentUser changes
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        };
+    }, [colorFor, currentUser]);
+
+    // Don't render if user is not authenticated
+    if (!currentUser) {
+        return null;
+    }
     
     return (
         <div className="pt-6 flex items-center">

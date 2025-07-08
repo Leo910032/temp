@@ -1,6 +1,6 @@
 "use client"
 import { appStorage, fireApp } from "@/important/firebase";
-import { testForActiveSession } from "@/lib/authentication/testForActiveSession";
+import { useAuth } from "@/contexts/AuthContext";
 import { updateThemeBackground } from "@/lib/update data/updateTheme";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
@@ -14,6 +14,7 @@ import { backgroundVideoUpload } from "@/lib/update data/backgroundVideoUpload";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 export default function BackgroundCard({ text, colorValue, backImg }) {
+    const { currentUser } = useAuth(); // Get current user from Firebase Auth
     const { setIsGradient } = useContext(backgroundContext);
     const [isSelected, setIsSelected] = useState(false);
     const [uploadedFilePreview, setUploadedFilePreview] = useState('');
@@ -48,6 +49,10 @@ export default function BackgroundCard({ text, colorValue, backImg }) {
     }
     
     const handleUploadFile = async () => {
+        if (!currentUser) {
+            throw new Error("User not authenticated");
+        }
+
         if (uploadedFile === "") {
             return;
         }
@@ -67,14 +72,21 @@ export default function BackgroundCard({ text, colorValue, backImg }) {
     }
     
     const handleUpdateTheme = async () => {
-        await updateThemeBackground(text);
+        if (!currentUser) {
+            throw new Error("User not authenticated");
+        }
+        await updateThemeBackground(text, currentUser.uid);
     }
     
     const handleImagePickingProcess = async () => {
+        if (!currentUser) {
+            throw new Error("User not authenticated");
+        }
+
         setIsLoading(true);
         try {
             const getImageUrl = await handleUploadFile();
-            await backgroundImageUpload(getImageUrl);
+            await backgroundImageUpload(getImageUrl, currentUser.uid);
             setIsLoading(false);
     
             handleUpdateTheme();
@@ -86,10 +98,14 @@ export default function BackgroundCard({ text, colorValue, backImg }) {
     }
     
     const handleVideoPickingProcess = async () => {
+        if (!currentUser) {
+            throw new Error("User not authenticated");
+        }
+
         setIsLoading(true);
         try {
             const getVideoUrl = await handleUploadFile();
-            await backgroundVideoUpload(getVideoUrl);
+            await backgroundVideoUpload(getVideoUrl, currentUser.uid);
             setIsLoading(false);
     
             handleUpdateTheme();
@@ -110,6 +126,11 @@ export default function BackgroundCard({ text, colorValue, backImg }) {
     }
     
     function functionType() {
+        if (!currentUser) {
+            toast.error("Please log in to continue");
+            return;
+        }
+
         switch (text) {
             case "Image":
                 inputRef.current.click();
@@ -125,6 +146,11 @@ export default function BackgroundCard({ text, colorValue, backImg }) {
     }
     
     const toasthandler = () => {
+        if (!currentUser) {
+            toast.error("Please log in to continue");
+            return;
+        }
+
         const promise = text === "Image" ? handleImagePickingProcess() : handleVideoPickingProcess();
         toast.promise(
             promise,
@@ -149,21 +175,37 @@ export default function BackgroundCard({ text, colorValue, backImg }) {
     
     useEffect(() => {
         function fetchTheme() {
-            const currentUser = testForActiveSession();
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
+            // Only fetch if user is authenticated
+            if (!currentUser) return;
 
-            onSnapshot(docRef, (docSnap) => {
+            const collectionRef = collection(fireApp, "AccountData");
+            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
+
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const { backgroundType } = docSnap.data();
                     setIsGradient(backgroundType === "Gradient");
                     setIsSelected(backgroundType === text);
                 }
             });
+
+            return unsubscribe; // Return cleanup function
         }
 
-        fetchTheme();
-    }, [text]);
+        const unsubscribe = fetchTheme();
+        
+        // Cleanup on unmount
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        };
+    }, [text, currentUser]); // Add currentUser to dependencies
+
+    // Don't render if user is not authenticated
+    if (!currentUser) {
+        return null;
+    }
 
     return (
         <div className="min-w-[8rem] flex-1 items-center flex flex-col">
