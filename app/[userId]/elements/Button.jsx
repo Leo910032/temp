@@ -1,11 +1,9 @@
 "use client"
 import { fireApp } from "@/important/firebase";
-import { fetchUserData } from "@/lib/fetch data/fetchUserData";
 import { hexToRgba, makeValidUrl } from "@/lib/utilities";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import IconDiv from "./IconDiv";
 import "./style/3d.css";
@@ -27,7 +25,6 @@ export default function Button({ url, content, userId }) {
     const [accentColor, setAccentColor] = useState([]);
     const [btnFontStyle, setBtnFontStyle] = useState(null);
     const [selectedFontClass, setSelectedFontClass] = useState("");
-    const router = useRouter();
 
     const [isHovered, setIsHovered] = useState(false);
 
@@ -79,37 +76,42 @@ export default function Button({ url, content, userId }) {
         }
     }
 
-
     useEffect(() => {
-        async function fetchInfo() {
-            const currentUser = await fetchUserData(userId);
-
-            if (!currentUser) {
-                router.push("/");
-                return;
-            }
-
+        function fetchInfo() {
+            // userId is now the actual Firebase Auth UID
             const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
+            const docRef = doc(collectionRef, userId);
 
-            onSnapshot(docRef, (docSnapshot) => {
+            const unsubscribe = onSnapshot(docRef, (docSnapshot) => {
                 if (!docSnapshot.exists()) {
                     return;
                 }
                 const { btnType, btnShadowColor, btnFontColor, themeFontColor, btnColor, selectedTheme, fontType } = docSnapshot.data();
                 const fontName = availableFonts_Classic[fontType ? fontType - 1 : 0];
-                setSelectedFontClass(fontName.class);
+                setSelectedFontClass(fontName ? fontName.class : "");
                 setThemeTextColour(themeFontColor ? themeFontColor : "");
                 setBtnColor(btnColor ? btnColor : "#fff");
                 setSelectedTheme(selectedTheme);
                 setBtnFontColor(btnFontColor ? btnFontColor : "#000");
                 setBtnShadowColor(btnShadowColor ? btnShadowColor : "#000");
                 setBtnType(btnType);
+            }, (error) => {
+                console.error("Error fetching button info:", error);
             });
+
+            return unsubscribe;
         }
 
-        fetchInfo();
-    }, [router, userId]);
+        if (userId) {
+            const unsubscribe = fetchInfo();
+            
+            return () => {
+                if (unsubscribe && typeof unsubscribe === 'function') {
+                    unsubscribe();
+                }
+            };
+        }
+    }, [userId]);
 
     useEffect(() => {
         if (selectedTheme === "3D Blocks") {

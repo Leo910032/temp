@@ -1,6 +1,5 @@
 "use client"
 import { fireApp } from "@/important/firebase";
-import { fetchUserData } from "@/lib/fetch data/fetchUserData";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
 import React, { useState } from "react";
@@ -37,12 +36,12 @@ export default function BgDiv({ userId }) {
     const [themeTextColour, setThemeTextColour] = useState("");
 
     useEffect(() => {
-        async function fetchProfilePicture() {
-            const currentUser = await fetchUserData(userId);;
+        function fetchProfilePicture() {
+            // userId is now the actual Firebase Auth UID
             const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
+            const docRef = doc(collectionRef, userId);
 
-            onSnapshot(docRef, (docSnap) => {
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const { profilePhoto, displayName, themeFontColor, selectedTheme, backgroundType, gradientDirection, backgroundColor, backgroundImage, backgroundVideo } = docSnap.data();
 
@@ -53,7 +52,6 @@ export default function BgDiv({ userId }) {
                     setBgVideo(backgroundVideo);
                     setBgImage(backgroundImage);
                     setThemeTextColour(themeFontColor ? themeFontColor : "");
-
 
                     if (profilePhoto !== '') {
                         setBackgroundPicture(
@@ -76,9 +74,22 @@ export default function BgDiv({ userId }) {
                         );
                     }
                 }
+            }, (error) => {
+                console.error("Error fetching background data:", error);
             });
+
+            return unsubscribe;
         }
-        fetchProfilePicture();
+        
+        if (userId) {
+            const unsubscribe = fetchProfilePicture();
+            
+            return () => {
+                if (unsubscribe && typeof unsubscribe === 'function') {
+                    unsubscribe();
+                }
+            };
+        }
     }, [userId]);
     
     return (
