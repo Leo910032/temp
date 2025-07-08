@@ -1,155 +1,135 @@
 import { fireApp } from "@/important/firebase";
-import { collection, doc, getDoc, setDoc } from "firebase/firestore";
-import { testForActiveSession } from "../authentication/testForActiveSession";
+import { collection, doc, setDoc } from "firebase/firestore";
 
-export async function updateSocials(arrayOfSocials) {
-    const username = testForActiveSession();
-    if (username) {
-        try {
-            const AccountDocRef = collection(fireApp, "AccountData");
-            const docRef = doc(AccountDocRef, `${username}`);
-            const docSnap = await getDoc(docRef);
-
-            if (docSnap.exists()) {
-                const previousData = docSnap.data();
-                const objectToUpdate = {...previousData, socials: arrayOfSocials};
-                await setDoc(docRef, objectToUpdate);
-                return;
-            }
-
-            await addDoc(docRef, {links: arrayOfSocials});
-        } catch (error) {
-            throw new Error(error);
-        }
+/**
+ * Updates the 'socials' array in the user's AccountData document.
+ * @param {Array} arrayOfSocials - The new array of social links.
+ * @param {string} userId - The Firebase Auth UID of the user.
+ */
+export async function updateSocials(arrayOfSocials, userId) {
+    if (!userId) {
+        throw new Error("User not authenticated. Cannot update socials.");
+    }
+    
+    try {
+        const docRef = doc(fireApp, "AccountData", userId);
+        await setDoc(docRef, { socials: arrayOfSocials }, { merge: true });
+    } catch (error) {
+        console.error("Error updating socials:", error);
+        throw new Error(error.message);
     }
 }
 
-export async function updateSocialPosition(position) {
-    const username = testForActiveSession();
-    if (username) {
-        try {
-            const AccountDocRef = collection(fireApp, "AccountData");
-            const docRef = doc(AccountDocRef, `${username}`);
-            const docSnap = await getDoc(docRef);
-            
-            if (docSnap.exists()) {
-                const previousData = docSnap.data();
-                const objectToUpdate = {...previousData, socialPosition: position};
-                await setDoc(docRef, objectToUpdate);
-                return;
-            }
-        } catch (error) {
-            throw new Error(error);
-        }
+/**
+ * Updates the position of the social icons on the user's page.
+ * @param {string} position - The position value (e.g., 'top' or 'bottom').
+ * @param {string} userId - The Firebase Auth UID of the user.
+ */
+export async function updateSocialPosition(position, userId) {
+    if (!userId) {
+        throw new Error("User not authenticated. Cannot update social position.");
+    }
+    
+    try {
+        const docRef = doc(fireApp, "AccountData", userId);
+        await setDoc(docRef, { socialPosition: position }, { merge: true });
+    } catch (error) {
+        console.error("Error updating social position:", error);
+        throw new Error(error.message);
     }
 }
 
-export async function updateSupportBanner(choice) {
-    const username = testForActiveSession();
-    if (username) {
-        try {
-            const AccountDocRef = collection(fireApp, "AccountData");
-            const docRef = doc(AccountDocRef, `${username}`);
-            const docSnap = await getDoc(docRef);
-
-            if (docSnap.exists()) {
-                const previousData = docSnap.data();
-                const objectToUpdate = {...previousData, supportBanner: choice};
-                await setDoc(docRef, objectToUpdate);
-                return;
-            }
-
-            await addDoc(docRef, {supportBanner: choice});
-        } catch (error) {
-            throw new Error(error);
-        }
+/**
+ * Updates the user's chosen support banner cause.
+ * @param {object} choice - The object representing the chosen cause.
+ * @param {string} userId - The Firebase Auth UID of the user.
+ */
+export async function updateSupportBanner(choice, userId) {
+    if (!userId) {
+        throw new Error("User not authenticated. Cannot update support banner.");
+    }
+    
+    try {
+        const docRef = doc(fireApp, "AccountData", userId);
+        await setDoc(docRef, { supportBanner: choice }, { merge: true });
+    } catch (error) {
+        console.error("Error updating support banner:", error);
+        throw new Error(error.message);
     }
 }
 
-export async function updateSupportBannerStatus(status) {
-    const username = testForActiveSession();
-    if (username) {
-        try {
-            const AccountDocRef = collection(fireApp, "AccountData");
-            const docRef = doc(AccountDocRef, `${username}`);
-            const docSnap = await getDoc(docRef);
-
-            if (docSnap.exists()) {
-                const previousData = docSnap.data();
-                const objectToUpdate = {...previousData, supportBannerStatus: status};
-                await setDoc(docRef, objectToUpdate);
-                return;
-            }
-
-            await addDoc(docRef, {supportBannerStatus: status});
-        } catch (error) {
-            throw new Error(error);
-        }
+/**
+ * Updates the visibility status of the support banner.
+ * @param {boolean} status - The new status (true for visible, false for hidden).
+ * @param {string} userId - The Firebase Auth UID of the user.
+ */
+export async function updateSupportBannerStatus(status, userId) {
+    if (!userId) {
+        throw new Error("User not authenticated. Cannot update support banner status.");
+    }
+    
+    try {
+        const docRef = doc(fireApp, "AccountData", userId);
+        await setDoc(docRef, { supportBannerStatus: status }, { merge: true });
+    } catch (error) {
+        console.error("Error updating support banner status:", error);
+        throw new Error(error.message);
     }
 }
 
-export async function updateSensitiveType(type) {
-    const username = testForActiveSession();
-    if (username) {
-        try {
-            const AccountDocRef = collection(fireApp, "AccountData");
-            const docRef = doc(AccountDocRef, `${username}`);
-            const docSnap = await getDoc(docRef);
+/**
+ * Updates the type of sensitive content warning.
+ * @param {string} type - The type of sensitive content.
+ * @param {string} userId - The Firebase Auth UID of the user.
+ */
+export async function updateSensitiveType(type, userId) {
+    if (!userId) {
+        throw new Error("User not authenticated. Cannot update sensitive content type.");
+    }
 
-            if (docSnap.exists()) {
-                const previousData = docSnap.data();
-                const objectToUpdate = {...previousData, sensitivetype: type};
-                await setDoc(docRef, objectToUpdate);
-                return;
-            }
-
-            await addDoc(docRef, {sensitivetype: type});
-        } catch (error) {
-            throw new Error(error);
-        }
+    try {
+        const docRef = doc(fireApp, "AccountData", userId);
+        await setDoc(docRef, { sensitivetype: type }, { merge: true });
+    } catch (error) {
+        console.error("Error updating sensitive content type:", error);
+        throw new Error(error.message);
     }
 }
 
-export async function updateSensitiveStatus(status) {
-    const username = testForActiveSession();
-    if (username) {
-        try {
-            const AccountDocRef = collection(fireApp, "AccountData");
-            const docRef = doc(AccountDocRef, `${username}`);
-            const docSnap = await getDoc(docRef);
+/**
+ * Updates the status of the sensitive content warning.
+ * @param {boolean} status - The new status (true for active, false for inactive).
+ * @param {string} userId - The Firebase Auth UID of the user.
+ */
+export async function updateSensitiveStatus(status, userId) {
+    if (!userId) {
+        throw new Error("User not authenticated. Cannot update sensitive content status.");
+    }
 
-            if (docSnap.exists()) {
-                const previousData = docSnap.data();
-                const objectToUpdate = {...previousData, sensitiveStatus: status};
-                await setDoc(docRef, objectToUpdate);
-                return;
-            }
-
-            await addDoc(docRef, {sensitiveStatus: status});
-        } catch (error) {
-            throw new Error(error);
-        }
+    try {
+        const docRef = doc(fireApp, "AccountData", userId);
+        await setDoc(docRef, { sensitiveStatus: status }, { merge: true });
+    } catch (error) {
+        console.error("Error updating sensitive content status:", error);
+        throw new Error(error.message);
     }
 }
 
-export async function updateCustomMetaData(metadata) {
-    const username = testForActiveSession();
-    if (username) {
-        try {
-            const AccountDocRef = collection(fireApp, "AccountData");
-            const docRef = doc(AccountDocRef, `${username}`);
-            const docSnap = await getDoc(docRef);
+/**
+ * Updates the custom SEO metadata for the user's page.
+ * @param {object} metadata - The object containing the meta title and description.
+ * @param {string} userId - The Firebase Auth UID of the user.
+ */
+export async function updateCustomMetaData(metadata, userId) {
+    if (!userId) {
+        throw new Error("User not authenticated. Cannot update metadata.");
+    }
 
-            if (docSnap.exists()) {
-                const previousData = docSnap.data();
-                const objectToUpdate = {...previousData, metaData: metadata};
-                await setDoc(docRef, objectToUpdate);
-                return;
-            }
-
-            await addDoc(docRef, {metaData: metadata});
-        } catch (error) {
-            throw new Error(error);
-        }
+    try {
+        const docRef = doc(fireApp, "AccountData", userId);
+        await setDoc(docRef, { metaData: metadata }, { merge: true });
+    } catch (error) {
+        console.error("Error updating metadata:", error);
+        throw new Error(error.message);
     }
 }

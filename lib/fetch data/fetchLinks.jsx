@@ -1,22 +1,26 @@
 import { fireApp } from "@/important/firebase";
-import { collection, doc, onSnapshot } from "firebase/firestore";
-import { testForActiveSession } from "../authentication/testForActiveSession";
+import { doc, getDoc } from "firebase/firestore";
 
-export function fetchLinks() {
-    const currentUser = testForActiveSession();
-    const collectionRef = collection(fireApp, "AccountData");
-    const docRef = doc(collectionRef, `${currentUser}`);
+export async function fetchLinks(userId) {
+    if (!userId) {
+        console.error("fetchLinks requires a userId.");
+        return []; // Return an empty array if no user ID is provided
+    }
 
-    return new Promise((resolve, reject) => {
-        onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const { links } = docSnap.data();
-                resolve(links);
-            } else {
-                resolve(false);
-            }
-        }, (error) => {
-            reject(error);
-        });
-    });
+    try {
+        const docRef = doc(fireApp, "AccountData", userId);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            return data.links || []; // Return links or an empty array if undefined
+        } else {
+            // The user document might not exist yet for a new user
+            return [];
+        }
+    } catch (error) {
+        console.error("Error fetching user links:", error);
+        // Throw the error to be caught by the calling component
+        throw new Error("Failed to fetch links.");
+    }
 }

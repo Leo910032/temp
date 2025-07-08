@@ -1,43 +1,78 @@
-'use client'
+"use client";
 
 import { fireApp } from "@/important/firebase";
-import { testForActiveSession } from "@/lib/authentication/testForActiveSession";
-import { updateSensitiveType } from "@/lib/update data/updateSocials";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { useAuth } from "@/contexts/AuthContext";
+import { collection, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 
-export default function AgeRestriction() {
-    const [pick, setPick] = useState(null);
-
-    const handleUpdateType = async() => {
-        await updateSensitiveType(pick);
+// This is the updated data update function.
+// It should be moved to a file like `lib/update data/updateUserSettings.js`
+async function updateSensitiveType(type, userId) {
+    if (!userId) {
+        console.error("updateSensitiveType failed: No user ID provided.");
+        throw new Error("User not authenticated.");
     }
 
-    useEffect(() => {
-        function fetchTheme() {
-            const currentUser = testForActiveSession();
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
-        
-            onSnapshot(docRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const { sensitivetype } = docSnap.data();
-                    setPick(sensitivetype ? sensitivetype : 3);
-                }
-            });
-        }
-        
-        fetchTheme();
-    }, []);
+    try {
+        const docRef = doc(fireApp, "AccountData", userId);
+        // Use setDoc with merge to create or update the field
+        await setDoc(docRef, { sensitivetype: type }, { merge: true });
+    } catch (error) {
+        console.error("Error updating sensitive type:", error);
+        toast.error("Could not save setting.");
+        throw new Error(error.message);
+    }
+}
 
+
+export default function AgeRestriction() {
+    const { currentUser } = useAuth();
+    const [pick, setPick] = useState(null);
+    const [hasLoaded, setHasLoaded] = useState(false);
+
+    // Effect for fetching the initial setting
     useEffect(() => {
-        if (pick === null) {
+        if (!currentUser) return;
+
+        const docRef = doc(fireApp, "AccountData", currentUser.uid);
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const { sensitivetype } = docSnap.data();
+                // Use nullish coalescing to provide a default value (3)
+                setPick(sensitivetype ?? 3);
+            } else {
+                // Default value for a new user or document
+                setPick(3);
+            }
+            setHasLoaded(true);
+        });
+
+        // Cleanup listener on unmount
+        return () => unsubscribe();
+    }, [currentUser]);
+
+    // Effect for updating the setting when the user makes a choice
+    useEffect(() => {
+        // Don't run on the initial load or if user is not authenticated
+        if (!hasLoaded || !currentUser) {
             return;
         }
         
+        const handleUpdateType = async() => {
+            // The `pick` state can be null initially, so we check
+            if (pick !== null) {
+                await updateSensitiveType(pick, currentUser.uid);
+            }
+        }
+        
         handleUpdateType();
-    }, [pick]);
+    }, [pick, hasLoaded, currentUser]);
 
+    // Don't render the component until the user state is confirmed
+    if (!currentUser) {
+        return null;
+    }
 
     return (
         <div className="my-5 grid gap-4">
@@ -67,5 +102,5 @@ export default function AgeRestriction() {
                 </div>
             </div>
         </div>
-    )
+    );
 }

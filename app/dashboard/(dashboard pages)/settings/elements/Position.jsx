@@ -1,43 +1,69 @@
 'use client'
 
 import { fireApp } from "@/important/firebase";
-import { testForActiveSession } from "@/lib/authentication/testForActiveSession";
-import { updateSocialPosition } from "@/lib/update data/updateSocials";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { useAuth } from "@/contexts/AuthContext";
+import { updateSocialPosition } from "@/lib/update data/updateSocials"; // Assuming this function is updated to accept a userId
+import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 
 export default function Position() {
+    const { currentUser } = useAuth(); // 1. Use the Auth context
     const [pick, setPick] = useState(0);
     const [hasPicked, setHasPicked] = useState(false);
 
-    const handleUpdatePosition = async() => {
-        await updateSocialPosition(pick);
-    }
-
+    // 2. Fetch initial data, now dependent on the user
     useEffect(() => {
-        function fetchTheme() {
-            const currentUser = testForActiveSession();
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
-        
-            onSnapshot(docRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const { socialPosition } = docSnap.data();
-                    setPick(socialPosition ? socialPosition : 0);
-                }
-            });
+        // Don't run if the user isn't loaded yet
+        if (!currentUser) {
+            return;
         }
-        
-        fetchTheme();
-    }, []);
 
+        const docRef = doc(fireApp, "AccountData", currentUser.uid); // Use Firebase Auth UID
+    
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const { socialPosition } = docSnap.data();
+                // Set initial position without triggering the update effect
+                setPick(socialPosition !== undefined ? socialPosition : 0);
+            }
+        });
+
+        // Cleanup listener on unmount or user change
+        return () => unsubscribe();
+    }, [currentUser]); // Re-run when the user logs in
+
+    // 3. Update data, also dependent on the user
     useEffect(() => {
+        // Prevent update on initial render
         if (!hasPicked) {
             setHasPicked(true);
             return;
         }
+
+        // Prevent update if user is not logged in
+        if (!currentUser) {
+            return;
+        }
+
+        const handleUpdatePosition = async () => {
+            try {
+                // Assuming updateSocialPosition is refactored to take (position, userId)
+                // If not, you can update the document directly here:
+                const docRef = doc(fireApp, "AccountData", currentUser.uid);
+                await updateDoc(docRef, { socialPosition: pick });
+                
+                // If you have the external function:
+                // await updateSocialPosition(pick, currentUser.uid);
+
+            } catch (error) {
+                toast.error("Failed to update position.");
+                console.error("Error updating social position:", error);
+            }
+        };
+
         handleUpdatePosition();
-    }, [pick]);
+    }, [pick, hasPicked, currentUser]); // Rerun when 'pick' or 'currentUser' changes
 
 
     return (
