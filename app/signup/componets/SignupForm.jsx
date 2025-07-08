@@ -1,5 +1,5 @@
 "use client"
-import { useDebounce } from "@/Local Hooks/useDebounce";
+import { useDebounce } from "@/LocalHooks/useDebounce";
 import { fireApp } from "@/important/firebase";
 import { createAccount } from "@/lib/authentication/createAccount";
 import { getSessionCookie, setSessionCookie } from "@/lib/authentication/session";

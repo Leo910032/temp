@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Draggable } from 'react-beautiful-dnd';
 import { FaPencil, FaX } from 'react-icons/fa6';
-import { useDebounce } from '@/Local Hooks/useDebounce';
+import { useDebounce } from '@/LocalHooks/useDebounce';
 import { ManageLinksContent } from '../../general components/ManageLinks';
 
 export default function Special({ item, index }) {

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import "../../styles/3d.css";
 import { FaArrowLeft, FaArrowRightArrowLeft, FaArrowUp } from "react-icons/fa6";
 import { useRouter } from "next/navigation";
-import { useDebounce } from "@/Local Hooks/useDebounce";
+import { useDebounce } from "@/LocalHooks/useDebounce";
 import Image from "next/image";
 import { setSessionCookie } from "@/lib/authentication/session";
 import { collection, onSnapshot } from "firebase/firestore";

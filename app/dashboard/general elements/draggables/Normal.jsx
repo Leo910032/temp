@@ -6,7 +6,7 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import { Draggable } from 'react-beautiful-dnd';
 import { FaPencil, FaX } from 'react-icons/fa6';
 import { ManageLinksContent } from '../../general components/ManageLinks';
-import { useDebounce } from '@/Local Hooks/useDebounce';
+import { useDebounce } from '@/LocalHooks/useDebounce';
 
 export default function Normal({ item, index }) {
     const { setData } = useContext(ManageLinksContent);

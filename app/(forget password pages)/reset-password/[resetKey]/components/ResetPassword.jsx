@@ -1,6 +1,6 @@
 "use client"
 import { validatePassword } from "@/lib/utilities";
-import { useDebounce } from "@/Local Hooks/useDebounce";
+import { useDebounce } from "@/LocalHooks/useDebounce";
 import { changePassword } from "@/lib/authentication/changePassword";
 import Image from "next/image";
 import Link from "next/link";

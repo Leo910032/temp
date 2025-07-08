@@ -2,7 +2,7 @@
 
 import { useContext, useEffect, useState } from "react";
 import { SocialContext } from "../components/SocialSetting";
-import { useDebounce } from "@/Local Hooks/useDebounce";
+import { useDebounce } from "@/LocalHooks/useDebounce";
 import Image from "next/image";
 import { SocialsList } from "@/lib/SocialsList";
 import { isValidEmail, isValidURL, validateEmail } from "@/lib/utilities";

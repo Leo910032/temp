@@ -2,7 +2,7 @@
 import { useContext, useEffect, useState } from "react";
 import { FaCheck, FaX } from "react-icons/fa6";
 import { selectedFontContext } from "../elements/SelectFonts";
-import { useDebounce } from "@/Local Hooks/useDebounce";
+import { useDebounce } from "@/LocalHooks/useDebounce";
 import { updateThemeFont } from "@/lib/update data/updateTheme";
 import { availableFonts_Classic } from "@/lib/FontsList";
 

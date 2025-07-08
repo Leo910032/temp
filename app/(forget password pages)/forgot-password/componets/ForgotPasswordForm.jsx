@@ -1,5 +1,5 @@
 "use client"
-import { useDebounce } from "@/Local Hooks/useDebounce";
+import { useDebounce } from "@/LocalHooks/useDebounce";
 import { fireApp } from "@/important/firebase";
 import { sendResetUrl } from "@/lib/authentication/sendResetUrl";
 import { generateRandomId, validateEmail } from "@/lib/utilities";

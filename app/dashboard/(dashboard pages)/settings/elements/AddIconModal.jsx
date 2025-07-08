@@ -3,7 +3,7 @@
 import { useContext, useEffect, useState } from "react";
 import { SocialContext } from "../components/SocialSetting";
 import Image from "next/image";
-import { useDebounce } from "@/Local Hooks/useDebounce";
+import { useDebounce } from "@/LocalHooks/useDebounce";
 import { SocialsList } from "@/lib/SocialsList";
 
 export default function AddIconModal() {
