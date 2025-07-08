@@ -1,41 +1,69 @@
 "use client"
 import { fireApp } from "@/important/firebase";
-import { filterProperly } from "@/lib/utilities";
 import { collection, doc, onSnapshot } from "firebase/firestore";
+import Image from "next/image";
+import { useRef, useState } from "react";
 import { useEffect } from "react";
-import { useState } from "react";
+import Head from "next/head";
 
-export default function UserInfo({ userId, hasSensitiveContent }) {
-    const [displayName, setDisplayName] = useState("");
-    const [themeFontColor, setThemeFontColor] = useState("");
-    const [themeTextColour, setThemeTextColour] = useState("");
-    const [myBio, setMyBio] = useState("");
+export default function ProfilePic({ userId }) {
+    const [profilePicture, setProfilePicture] = useState(null);
+    const [hasProfilePic, setHasProfilePic] = useState(false);
+    const [isElementVisible, setIsElementVisible] = useState(null);
+    const [profileImageUrl, setProfileImageUrl] = useState("");
+    const profilePicRef = useRef();
 
     useEffect(() => {
-        function fetchInfo() {
+        function fetchProfilePicture() {
             // userId is now the actual Firebase Auth UID
             const collectionRef = collection(fireApp, "AccountData");
             const docRef = doc(collectionRef, userId);
 
-            const unsubscribe = onSnapshot(docRef, (docSnapshot) => {
-                if (!docSnapshot.exists()) {
-                    return;
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const { profilePhoto, displayName } = docSnap.data();
+
+                    setProfileImageUrl(profilePhoto || "");
+
+                    if (profilePhoto !== '') {
+                        setProfilePicture(
+                            <Image
+                                src={`${profilePhoto}`}
+                                alt="profile"
+                                height={1000}
+                                width={1000}
+                                className="min-w-full h-full object-contain pointer-events-none"
+                                priority
+                            />
+                        );
+
+                        setHasProfilePic(true);
+                    } else {
+                        setHasProfilePic(false);
+                        setProfilePicture(
+                            <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                                <span className="text-3xl font-semibold uppercase">
+                                    {displayName === '' ? "U" : displayName.split('')[0]}
+                                </span>
+                            </div>
+                        );
+                    }
                 }
-                const { displayName, bio: bioText, themeFontColor, themeTextColour } = docSnapshot.data();
-                const bio = bioText ? bioText : "";
-                setThemeTextColour(themeTextColour ? themeTextColour : "");
-                setDisplayName(hasSensitiveContent ? displayName : filterProperly(`${displayName ? displayName : ""}`));
-                setThemeFontColor(themeFontColor ? themeFontColor : "");
-                setMyBio(hasSensitiveContent ? bio : filterProperly(bio));
             }, (error) => {
-                console.error("Error fetching user info:", error);
+                console.error("Error fetching profile picture:", error);
+                setHasProfilePic(false);
+                setProfilePicture(
+                    <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                        <span className="text-3xl font-semibold uppercase">U</span>
+                    </div>
+                );
             });
 
             return unsubscribe;
         }
-
+        
         if (userId) {
-            const unsubscribe = fetchInfo();
+            const unsubscribe = fetchProfilePicture();
             
             return () => {
                 if (unsubscribe && typeof unsubscribe === 'function') {
@@ -43,12 +71,47 @@ export default function UserInfo({ userId, hasSensitiveContent }) {
                 }
             };
         }
-    }, [userId, hasSensitiveContent]);
+    }, [userId]);
 
+    const intersectionCallback = (entries) => {
+        const entry = entries[0];
+        setIsElementVisible(entry.isIntersecting);
+    };
+
+    useEffect(() => {
+        const observer = new IntersectionObserver(intersectionCallback, {
+            threshold: 0.5,
+        });
+
+        if (profilePicRef.current) {
+            observer.observe(profilePicRef.current);
+        }
+
+        return () => {
+            if (profilePicRef.current) {
+                observer.unobserve(profilePicRef.current);
+            }
+        };
+    }, [profilePicRef]);
+    
     return (
         <>
-            {String(displayName).length > 0 && <span style={{color: `${themeFontColor === "#000" ? themeTextColour: themeFontColor}`}} className="font-semibold text-lg py-2">{displayName.split(" ").length > 1 ? displayName : `@${displayName}`}</span>}
-            {String(myBio).length > 0 && <span style={{color: `${themeFontColor === "#000" ? themeTextColour: themeFontColor}`}} className="opacity-80 text-center text-base max-w-[85%]">{myBio}</span>}
+            {profileImageUrl && <Head>
+                <meta property="og:image" content={`${profileImageUrl}`} />
+                <meta property="og:image:width" content="300" />
+                <meta property="og:image:height" content="300" />
+                <meta name="twitter:image" content={`${profileImageUrl}`} />
+                <meta name="twitter:image:width" content="300" />
+                <meta name="twitter:image:height" content="300" />
+            </Head>}
+            {isElementVisible !== null && !isElementVisible && <div className="fixed z-[300] md:w-[50rem] w-[calc(100%-1rem)] flex flex-col items-center p-2 rounded-[3rem] border bg-white bg-opacity-10 backdrop-blur-[10px] top-2 left-1/2 -translate-x-1/2">
+                <div ref={profilePicRef} className={`min-h-[3rem] w-[3rem] sm:min-h-[4rem] sm:w-[4rem] rounded-full overflow-hidden ${hasProfilePic ? '' : 'bg-white border'} grid place-items-center pointer-events-none select-none`}>
+                    {profilePicture}
+                </div>
+            </div>}
+            <div ref={profilePicRef} className={`min-h-[5rem] w-[5rem] sm:min-h-[6rem] sm:w-[6rem] mb-2 rounded-full overflow-hidden ${hasProfilePic ? '' : 'bg-white border'} grid place-items-center pointer-events-none select-none`}>
+                {profilePicture}
+            </div>
         </>
     )
 }

@@ -8,6 +8,7 @@ import React, { useEffect, useState } from "react";
 import { fireApp } from "@/important/firebase";
 import { collection, doc, getDoc, query, where, getDocs } from "firebase/firestore";
 import SensitiveWarning from "./components/SensitiveWarning";
+import { notFound } from 'next/navigation';
 
 export const HouseContext = React.createContext();
 
@@ -16,13 +17,16 @@ export default function House({ userId }) {
     const [hasSensitiveContent, setHasSensitiveContent] = useState(false);
     const [sensitiveType, setSensitiveType] = useState(false);
     const [actualUserId, setActualUserId] = useState(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         async function fetchUserByUsername() {
             try {
+                console.log("Looking for user:", userId);
+                
                 // First, try to find user by username in AccountData
                 const accountsRef = collection(fireApp, "AccountData");
-                const q = query(accountsRef, where("username", "==", userId.toLowerCase()));
+                const q = query(accountsRef, where("username", "==", userId));
                 const querySnapshot = await getDocs(q);
                 
                 let foundUserId = null;
@@ -30,6 +34,7 @@ export default function House({ userId }) {
                 if (!querySnapshot.empty) {
                     // Found user by username
                     foundUserId = querySnapshot.docs[0].id;
+                    console.log("Found user by username:", foundUserId);
                 } else {
                     // If not found by username, try direct Firebase Auth UID lookup
                     const docRef = doc(fireApp, "AccountData", userId);
@@ -37,6 +42,7 @@ export default function House({ userId }) {
                     
                     if (docSnap.exists()) {
                         foundUserId = userId;
+                        console.log("Found user by UID:", foundUserId);
                     }
                 }
                 
@@ -54,26 +60,34 @@ export default function House({ userId }) {
                         setSensitiveType(sensitivetype ? sensitivetype : 3);
                     }
                 } else {
-                    // User not found - you might want to show a 404 page
+                    // User not found - trigger 404
                     console.error("User not found:", userId);
-                    // You could redirect to a 404 page here
+                    notFound();
                 }
                 
             } catch (error) {
                 console.error("Error fetching user:", error);
+                notFound();
+            } finally {
+                setLoading(false);
             }
         }
         
         fetchUserByUsername();
     }, [userId]);
 
-    // Don't render until we have the actual user ID
-    if (!actualUserId) {
+    // Show loading while fetching user
+    if (loading) {
         return (
             <div className="w-screen h-screen flex items-center justify-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
             </div>
         );
+    }
+
+    // Don't render until we have the actual user ID
+    if (!actualUserId) {
+        return null;
     }
 
     return (

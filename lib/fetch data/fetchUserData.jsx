@@ -1,26 +1,31 @@
 import { fireApp } from '@/important/firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, doc, getDoc, query, where, getDocs } from 'firebase/firestore';
 
-export const fetchUserData = (userId) => {
-    const collectionRef = collection(fireApp, "accounts");
+export const fetchUserData = async (userId) => {
+    try {
+        // First, try to get user data directly by Firebase Auth UID
+        const docRef = doc(fireApp, "AccountData", userId);
+        const docSnap = await getDoc(docRef);
 
-    return new Promise((resolve, reject) => {
-        onSnapshot(collectionRef, (querySnapshot) => {
-            let userInfo;
-            querySnapshot.forEach((user) => {
-                const id = user.id;
-                const data = user.data();
+        if (docSnap.exists()) {
+            return userId; // Return the Firebase Auth UID
+        }
 
-                if (id === userId) {
-                    userInfo = data;
-                } else if (data.username === userId) {
-                    userInfo = id;
-                }
-            });
+        // If not found, try to find by username
+        const collectionRef = collection(fireApp, "AccountData");
+        const q = query(collectionRef, where("username", "==", userId.toLowerCase()));
+        const querySnapshot = await getDocs(q);
 
-            resolve(userInfo);
-        }, (error) => {
-            reject(error);
-        });
-    });
+        if (!querySnapshot.empty) {
+            // Found user by username, return the Firebase Auth UID
+            return querySnapshot.docs[0].id;
+        }
+
+        // User not found
+        return null;
+
+    } catch (error) {
+        console.error("Error fetching user data:", error);
+        throw error;
+    }
 };

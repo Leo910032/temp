@@ -3,7 +3,6 @@ import { collection, doc, getDoc, query, where, getDocs } from "firebase/firesto
 import House from "./House";
 import Filter from "bad-words"
 import { Toaster } from "react-hot-toast";
-import { notFound } from 'next/navigation';
 
 export async function generateMetadata({ params: { userId } }) {
     try {
@@ -11,14 +10,16 @@ export async function generateMetadata({ params: { userId } }) {
         
         // Look up user by username first
         const accountsRef = collection(fireApp, "AccountData");
-        const q = query(accountsRef, where("username", "==", userId.toLowerCase()));
+        const q = query(accountsRef, where("username", "==", userId));
         const querySnapshot = await getDocs(q);
         
         let actualUserId = null;
+        let userData = null;
         
         if (!querySnapshot.empty) {
             // Found user by username
             actualUserId = querySnapshot.docs[0].id;
+            userData = querySnapshot.docs[0].data();
         } else {
             // If not found by username, try direct Firebase Auth UID lookup
             const docRef = doc(fireApp, "AccountData", userId);
@@ -26,30 +27,32 @@ export async function generateMetadata({ params: { userId } }) {
             
             if (docSnap.exists()) {
                 actualUserId = userId;
+                userData = docSnap.data();
             }
         }
         
-        if (!actualUserId) {
-            notFound();
+        if (!actualUserId || !userData) {
+            // Return default metadata instead of throwing notFound
+            return {
+                title: "Profile Not Found",
+                description: "This profile does not exist"
+            };
         }
         
-        // Get user data with the found user ID
-        const docRef = doc(fireApp, "AccountData", actualUserId);
-        const docSnap = await getDoc(docRef);
-    
-        if (docSnap.exists()) {
-            const { metaData, displayName, username } = docSnap.data();
-            
-            return ({
-                title: metaData && metaData.title ? filter.clean(metaData.title) : `@${username || userId} Landing Page`,
-                description: metaData && metaData.description ? filter.clean(metaData.description) : `Check out ${displayName || username || userId}'s links`,
-            });
-        } else {
-            notFound();
-        }
+        const { metaData, displayName, username } = userData;
+        
+        return ({
+            title: metaData && metaData.title ? filter.clean(metaData.title) : `@${username || userId} Landing Page`,
+            description: metaData && metaData.description ? filter.clean(metaData.description) : `Check out ${displayName || username || userId}'s links`,
+        });
+        
     } catch (error) {
         console.error("Error generating metadata:", error);
-        notFound();
+        // Return default metadata instead of throwing notFound
+        return {
+            title: "Profile Not Found",
+            description: "This profile does not exist"
+        };
     }
 }
 

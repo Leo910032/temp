@@ -1,21 +1,15 @@
 "use client"
 import { fireApp } from "@/important/firebase";
-import { collection, doc, onSnapshot } from "firebase/firestore";
-import { useEffect, useState } from "react"
-import Button from "../elements/Button";
-import Socials from "../elements/Socials";
-import Filter from "bad-words";
 import { filterProperly } from "@/lib/utilities";
+import { collection, doc, onSnapshot } from "firebase/firestore";
+import { useEffect } from "react";
+import { useState } from "react";
 
-export default function MyLinks({ userId, hasSensitiveContent }) {
-    const [myLinksArray, setMyLinksArray] = useState([]);
-    const [displayLinks, setDisplayLinks] = useState([]);
-    const [socialArray, setSocialArray] = useState([]);
-    const [socialPosition, setSocialPosition] = useState(null);
+export default function UserInfo({ userId, hasSensitiveContent }) {
+    const [displayName, setDisplayName] = useState("");
     const [themeFontColor, setThemeFontColor] = useState("");
-    const [supportGroupStatus, setSupportGroupStatus] = useState(false);
     const [themeTextColour, setThemeTextColour] = useState("");
-    const filter = new Filter();
+    const [myBio, setMyBio] = useState("");
 
     useEffect(() => {
         function fetchInfo() {
@@ -27,16 +21,14 @@ export default function MyLinks({ userId, hasSensitiveContent }) {
                 if (!docSnapshot.exists()) {
                     return;
                 }
-                const { links, themeFontColor, socials, socialPosition, supportBannerStatus, themeTextColour } = docSnapshot.data();
+                const { displayName, bio: bioText, themeFontColor, themeTextColour } = docSnapshot.data();
+                const bio = bioText ? bioText : "";
                 setThemeTextColour(themeTextColour ? themeTextColour : "");
-                setSupportGroupStatus(supportBannerStatus);
-                const rtLinks = links ? links : [];
-                setSocialArray(socials ? socials : []);
-                setMyLinksArray(rtLinks);
-                setSocialPosition(socialPosition ? socialPosition : 0);
+                setDisplayName(hasSensitiveContent ? displayName : filterProperly(`${displayName ? displayName : ""}`));
                 setThemeFontColor(themeFontColor ? themeFontColor : "");
+                setMyBio(hasSensitiveContent ? bio : filterProperly(bio));
             }, (error) => {
-                console.error("Error fetching links:", error);
+                console.error("Error fetching user info:", error);
             });
 
             return unsubscribe;
@@ -51,25 +43,12 @@ export default function MyLinks({ userId, hasSensitiveContent }) {
                 }
             };
         }
-    }, [userId]);
+    }, [userId, hasSensitiveContent]);
 
-    useEffect(() => {
-        setDisplayLinks(
-            myLinksArray.filter((link) => link.isActive !== false)
-        );
-    }, [myLinksArray]);
-    
     return (
-        <div className={`flex flex-col gap-4 my-4 w-full px-5 py-1 items-center max-h-fit ${supportGroupStatus ? "pb-12" : ""}`}>
-            {socialPosition === 0 && socialArray.length > 0 && <Socials themeFontColor={themeFontColor} socialArray={socialArray} />}
-            {displayLinks.map((link, index) => {
-                if (link.type === 0) {
-                    return (<span key={index} style={{color: `${themeFontColor === "#000" ? themeTextColour : themeFontColor}`}} className="mx-auto font-semibold text-sm mt-2">{hasSensitiveContent ? link.title : filterProperly(link.title)}</span>);
-                } else {
-                    return (<Button key={link.id} content={hasSensitiveContent ? link.title : filterProperly(link.title)} url={link.url} userId={userId} />);
-                }
-            })}
-            {socialPosition === 1 && socialArray.length > 0 && <Socials themeFontColor={themeFontColor} socialArray={socialArray} />}
-        </div>
+        <>
+            {String(displayName).length > 0 && <span style={{color: `${themeFontColor === "#000" ? themeTextColour: themeFontColor}`}} className="font-semibold text-lg py-2">{displayName.split(" ").length > 1 ? displayName : `@${displayName}`}</span>}
+            {String(myBio).length > 0 && <span style={{color: `${themeFontColor === "#000" ? themeTextColour: themeFontColor}`}} className="opacity-80 text-center text-base max-w-[85%]">{myBio}</span>}
+        </>
     )
 }
