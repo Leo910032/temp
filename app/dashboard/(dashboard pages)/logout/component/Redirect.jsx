@@ -1,22 +1,14 @@
+// app/dashboard/(dashboard pages)/logout/component/Redirect.jsx
 "use client"
-import { removeSessionCookie } from '@/lib/authentication/session';
-import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import { useEffect } from 'react';
 
 export default function Redirect() {
-    const router = useRouter();
+    const { logout } = useAuth();
 
     useEffect(() => {
-        try {
-            async function logOff() {
-                await removeSessionCookie("adminLinker");
-                router.push("/login");
-            }
-            logOff();
-        } catch (error) {
-            router.back();
-            throw new Error(error);
-        }
-    }, []);
+        logout(); // This will handle sign out and redirect
+    }, [logout]);
 
+    return null; // No need to render anything
 }

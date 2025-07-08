@@ -7,14 +7,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 import ProfileCard from "../NavComponents/ProfileCard";
-import { fetchUserData } from "@/lib/fetch data/fetchUserData";
 import ShareCard from "../NavComponents/ShareCard";
 
 export const NavContext = React.createContext();
 
 export default function NavBar() {
     const router = usePathname();
-    const { currentUser } = useAuth(); // Get current user from Firebase Auth
+    const { currentUser } = useAuth();
     const [activePage, setActivePage] = useState();
     const [profilePicture, setProfilePicture] = useState(null);
     const [username, setUsername] = useState("");
@@ -25,17 +24,13 @@ export default function NavBar() {
     const shareCardRef = useRef(null);
 
     const handleShowProfileCard = () => {
-        if (username === "") {
-            return;
-        }
+        if (username === "") return;
         setShowProfileCard(!showProfileCard);
         setShowShareCard(false);
     }
 
     const handleShowShareCard = () => {
-        if (username === "") {
-            return;
-        }
+        if (username === "") return;
         setShowShareCard(!showShareCard);
         setShowProfileCard(false);
     }
@@ -46,17 +41,9 @@ export default function NavBar() {
                 setShowProfileCard(false);
             }
         };
-
-        if (showProfileCard) {
-            document.addEventListener("mousedown", handleClickOutside);
-        } else {
-            document.removeEventListener("mousedown", handleClickOutside);
-        }
-
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, [showProfileCard, setShowProfileCard]);
+        if (showProfileCard) document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [showProfileCard]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -64,102 +51,92 @@ export default function NavBar() {
                 setShowShareCard(false);
             }
         };
+        if (showShareCard) document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [showShareCard]);
 
-        if (showShareCard) {
-            document.addEventListener("mousedown", handleClickOutside);
-        } else {
-            document.removeEventListener("mousedown", handleClickOutside);
+    // --- REFACTORED DATA FETCHING LOGIC ---
+    useEffect(() => {
+        // If user logs out, clear the state and stop.
+        if (!currentUser) {
+            setUsername("");
+            setMyLink("");
+            setProfilePicture(null);
+            return;
         }
 
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, [showShareCard, setShowShareCard]);
+        const docRef = doc(fireApp, "AccountData", currentUser.uid);
 
-    useEffect(() => {
-        async function fetchProfilePicture() {
-            // Only fetch if user is authenticated
-            if (!currentUser) return;
+        // Use a single onSnapshot listener for all user data.
+        // This is real-time and handles the case where the document doesn't exist initially.
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                
+                // Get all data from the snapshot
+                const newUsername = data.username || "";
+                const displayName = data.displayName || newUsername;
+                const profilePhoto = data.profilePhoto || "";
 
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
+                setUsername(newUsername);
+                setMyLink(newUsername ? `https://mylinks.fabiconcept.online/${newUsername}` : "");
 
-            try {
-                // Fetch user data using Firebase Auth UID
-                const myData = await fetchUserData(currentUser.uid);
-                const { username } = myData;
-                setUsername(username);
-                setMyLink(`https://mylinks.fabiconcept.online/${username}`);
-
-                // Set up real-time listener
-                const unsubscribe = onSnapshot(docRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        const { profilePhoto, displayName } = docSnap.data();
-
-                        if (profilePhoto !== '') {
-                            setProfilePicture(
-                                <Image
-                                    src={`${profilePhoto}`}
-                                    alt="profile"
-                                    height={1000}
-                                    width={1000}
-                                    className="min-w-full h-full object-cover"
-                                    priority
-                                />
-                            );
-                        } else {
-                            setProfilePicture(
-                                <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
-                                    <span className="text-3xl font-semibold uppercase">
-                                        {displayName ? displayName.split('')[0] : 'U'}
-                                    </span>
-                                </div>
-                            );
-                        }
-                    }
-                });
-
-                // Return cleanup function
-                return unsubscribe;
-            } catch (error) {
-                console.error("Error fetching user data:", error);
-                // Set default profile picture on error
+                // Set profile picture based on the data
+                if (profilePhoto) {
+                    setProfilePicture(
+                        <Image
+                            src={profilePhoto}
+                            alt="profile"
+                            height={1000}
+                            width={1000}
+                            className="min-w-full h-full object-cover"
+                            priority
+                        />
+                    );
+                } else {
+                    setProfilePicture(
+                        <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                            <span className="text-3xl font-semibold uppercase">
+                                {displayName ? displayName.charAt(0) : 'U'}
+                            </span>
+                        </div>
+                    );
+                }
+            } else {
+                // This handles the case for a new user whose document hasn't been created yet.
+                console.log("User document not found yet for UID:", currentUser.uid);
+                // Set a default state while waiting
                 setProfilePicture(
                     <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
                         <span className="text-3xl font-semibold uppercase">
-                            {currentUser.email ? currentUser.email.split('')[0] : 'U'}
+                            {currentUser.email ? currentUser.email.charAt(0) : 'U'}
                         </span>
                     </div>
                 );
             }
-        }
+        }, (error) => {
+            console.error("Error fetching user data with onSnapshot:", error);
+        });
 
-        fetchProfilePicture();
-    }, [currentUser]); // Depend on currentUser instead of empty array
+        // Return the cleanup function to prevent memory leaks
+        return () => unsubscribe();
+        
+    }, [currentUser]);
 
     useEffect(() => {
         switch (router) {
-            case "/dashboard":
-                setActivePage(0);
-                break;
-            case "/dashboard/appearance":
-                setActivePage(1);
-                break;
-            case "/dashboard/analytics":
-                setActivePage(2);
-                break;
-            case "/dashboard/settings":
-                setActivePage(3);
-                break;
-            default:
-                setActivePage(0);
-                break;
+            case "/dashboard": setActivePage(0); break;
+            case "/dashboard/appearance": setActivePage(1); break;
+            case "/dashboard/analytics": setActivePage(2); break;
+            case "/dashboard/settings": setActivePage(3); break;
+            default: setActivePage(0); break;
         }
     }, [router]);
-
-    // Don't render if user is not authenticated
+    
+    // While currentUser is loading, we can show a minimal or empty nav.
+    // The AuthProvider/ProtectedRoute should handle the main loading state.
     if (!currentUser) {
-        return null;
+        return null; // Or a loading skeleton for the NavBar
     }
     
     return (
@@ -171,7 +148,7 @@ export default function NavBar() {
             setShowProfileCard, 
             showShareCard, 
             setShowShareCard,
-            currentUser // Add currentUser to context for child components
+            currentUser
         }}>
             <div className="w-full justify-between flex items-center rounded-[3rem] py-3 sticky top-0 z-[9999999999] px-3 mx-auto bg-white border backdrop-blur-lg">
                 <div className="flex items-center gap-8">
@@ -188,13 +165,6 @@ export default function NavBar() {
                             <Image src={"https://linktree.sirv.com/Images/icons/appearance.svg"} alt="links" height={16} width={16} />
                             Appearance
                         </Link>
-
-                        {/* Didn't find these page */}
-                        {/* <Link href={'/dashboard'} className={`flex items-center gap-2 px-2 py-2 active:scale-90 active:opacity-40 hover:bg-black hover:bg-opacity-[0.075] rounded-lg text-sm font-semibold ${activePage === 2 ? "opacity-100" : "opacity-50 hover:opacity-70"}`}>
-                            <Image src={"https://linktree.sirv.com/Images/icons/analytics.svg"} alt="links" height={16} width={16} />
-                            analytics
-                        </Link> */}
-                        
                         <Link href={'/dashboard/settings'} className={`flex items-center gap-2 px-2 py-2 active:scale-90 active:opacity-40 hover:bg-black hover:bg-opacity-[0.075] rounded-lg text-sm font-semibold ${activePage === 3 ? "opacity-100" : "opacity-50 hover:opacity-70"}`}>
                             <Image src={"https://linktree.sirv.com/Images/icons/setting.svg"} alt="links" height={16} width={16} />
                             settings
@@ -225,13 +195,6 @@ export default function NavBar() {
                     <Image src={"https://linktree.sirv.com/Images/icons/appearance.svg"} alt="links" height={16} width={16} />
                     Appearance
                 </Link>
-
-                {/* Didn't find these page */}
-                {/* <Link href={'/dashboard'} className={`flex items-center flex-1 justify-center gap-2 px-3 py-2 active:scale-90 active:opacity-40 hover:bg-black hover:bg-opacity-[0.075] rounded-lg text-sm font-semibold ${activePage === 2 ? "opacity-100" : "opacity-50 hover:opacity-70"}`}>
-                            <Image src={"https://linktree.sirv.com/Images/icons/analytics.svg"} alt="links" height={16} width={16} />
-                            analytics
-                        </Link> */}
-
                 <Link href={'/dashboard/settings'} className={`flex items-center flex-1 justify-center gap-2 px-3 py-2 active:scale-90 active:opacity-40 hover:bg-black hover:bg-opacity-[0.075] rounded-lg text-sm font-semibold ${activePage === 3 ? "opacity-100" : "opacity-50 hover:opacity-70"}`}>
                     <Image src={"https://linktree.sirv.com/Images/icons/setting.svg"} alt="links" height={16} width={16} />
                     settings

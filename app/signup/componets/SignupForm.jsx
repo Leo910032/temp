@@ -1,7 +1,6 @@
 "use client"
 import { useDebounce } from "@/LocalHooks/useDebounce";
-import { firebaseAuthService } from "@/lib/authentication/firebaseAuth";
-import { getSessionCookie } from "@/lib/authentication/session";
+import { useAuth } from "@/contexts/AuthContext";
 import { validateEmail, validatePassword } from "@/lib/utilities";
 import Image from "next/image";
 import Link from "next/link";
@@ -9,9 +8,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { FaCheck, FaEye, FaEyeSlash, FaX } from "react-icons/fa6";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { fireApp } from "@/important/firebase";
 
 export default function SignUpForm() {
     const router = useRouter();
+    const { signup, signInWithGoogle, loading: authLoading } = useAuth();
     const [seePassword, setSeePassword] = useState(true);
     const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
@@ -28,10 +30,23 @@ export default function SignUpForm() {
     const debouncedPassword = useDebounce(password, 500);
     const debouncedEmail = useDebounce(email, 500);
 
+    // Helper function to check if username exists
+    const checkUsernameExists = async (username) => {
+        try {
+            const accountsRef = collection(fireApp, "AccountData");
+            const q = query(accountsRef, where("username", "==", username.toLowerCase()));
+            const querySnapshot = await getDocs(q);
+            return !querySnapshot.empty;
+        } catch (error) {
+            console.error("Error checking username:", error);
+            throw error;
+        }
+    };
+
     const handleSubmit = async(e) => {
         e.preventDefault();
 
-        if (!canProceed || isLoading) {
+        if (!canProceed || isLoading || authLoading) {
             return;
         }
         
@@ -39,7 +54,7 @@ export default function SignUpForm() {
 
         try {
             // Create user with Firebase Auth
-            const user = await firebaseAuthService.createAccount(email, password, username);
+            await signup(email, password, username);
             
             // Success - user is automatically signed in
             toast.success("Account created successfully!");
@@ -63,45 +78,27 @@ export default function SignUpForm() {
             } else if (error.code === 'auth/invalid-email') {
                 errorMsg = "Invalid email format";
                 setHasError((prevData) => ({ ...prevData, email: 1 }));
-            } else if (error.message === "This username is already taken.") {
-                errorMsg = error.message;
+            } else if (error.message === "Username already exists") {
+                errorMsg = "This username is already taken.";
                 setHasError((prevData) => ({ ...prevData, username: 1 }));
             }
             
             setErrorMessage(errorMsg);
             console.error("Signup error:", error);
+            toast.error(errorMsg);
         }
     }
 
-    const createAccountHandler = (e) => {
+    const createAccountHandler = async (e) => {
         e.preventDefault();
-        const promise = handleSubmit(e);
-        toast.promise(
-            promise,
-            {
-                loading: "Setting up your account...",
-                error: "Couldn't complete registration",
-                success: "Setup complete!",
-            },
-            {
-                style: {
-                    border: '1px solid #8129D9',
-                    padding: '16px',
-                    color: '#8129D9',
-                },
-                iconTheme: {
-                    primary: '#8129D9',
-                    secondary: '#FFFAEE',
-                },
-            }
-        );
+        await handleSubmit(e);
     }
 
     // Google Sign In Handler
     const handleGoogleSignIn = async () => {
         try {
             setIsLoading(true);
-            await firebaseAuthService.signInWithGoogle();
+            await signInWithGoogle();
             toast.success("Signed in with Google!");
             router.push("/dashboard");
         } catch (error) {
@@ -129,7 +126,7 @@ export default function SignUpForm() {
             // Check username availability with Firebase
             const checkUsername = async () => {
                 try {
-                    const exists = await firebaseAuthService.checkUsernameExists(debouncedUsername);
+                    const exists = await checkUsernameExists(debouncedUsername);
                     if (exists) {
                         setHasError((prevData) => ({ ...prevData, username: 1 }));
                         setErrorMessage("This username is already taken.");
@@ -181,11 +178,12 @@ export default function SignUpForm() {
         }
     }, [debouncedPassword]);
 
-    // Check for existing username from landing page
+    // Get username from URL params if coming from landing page
     useEffect(() => {
-        const sessionUsername = getSessionCookie("username");
-        if (sessionUsername !== undefined) {
-            setUsername(sessionUsername);
+        const urlParams = new URLSearchParams(window.location.search);
+        const usernameParam = urlParams.get('username');
+        if (usernameParam) {
+            setUsername(usernameParam);
         }
     }, []);
 
@@ -222,7 +220,7 @@ export default function SignUpForm() {
                 <div className="py-4">
                     <button 
                         onClick={handleGoogleSignIn}
-                        disabled={isLoading}
+                        disabled={isLoading || authLoading}
                         className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-300 rounded-md hover:bg-gray-50 active:scale-95 disabled:opacity-50"
                     >
                         <svg width="20" height="20" viewBox="0 0 24 24">
@@ -231,7 +229,7 @@ export default function SignUpForm() {
                             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                         </svg>
-                        {isLoading ? "Signing in..." : "Continue with Google"}
+                        {(isLoading || authLoading) ? "Signing in..." : "Continue with Google"}
                     </button>
                 </div>
 
@@ -290,14 +288,14 @@ export default function SignUpForm() {
                     <button type="submit" className={
                         `rounded-md py-4 sm:py-5 grid place-items-center font-semibold ${canProceed ? "cursor-pointer active:scale-95 active:opacity-40 hover:scale-[1.025] bg-themeGreen mix-blend-screen" : "cursor-default opacity-50 "}`
                     }>
-                        {!isLoading && <span className="nopointer">Create Account</span>}
-                        {isLoading && <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={25} height={25} alt="loading" className=" mix-blend-screen" />}
+                        {!(isLoading || authLoading) && <span className="nopointer">Create Account</span>}
+                        {(isLoading || authLoading) && <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={25} height={25} alt="loading" className=" mix-blend-screen" />}
                     </button>
 
-                    {!isLoading && <span className="text-sm text-red-500 text-center">{errorMessage}</span>}
+                    {!(isLoading || authLoading) && <span className="text-sm text-red-500 text-center">{errorMessage}</span>}
                 </form>
                 <p className="text-center"><span className="opacity-60">Already have an account?</span> <Link className="text-themeGreen" href={"/login"}>Log in</Link> </p>
             </section>
         </div>
     )
-}ay
+}

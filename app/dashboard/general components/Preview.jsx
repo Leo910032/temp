@@ -2,24 +2,39 @@
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import "../../styles/3d.css";
-import { getSessionCookie } from '@/lib/authentication/session';
+import { useAuth } from '@/contexts/AuthContext';
 import { fetchUserData } from '@/lib/fetch data/fetchUserData';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { fireApp } from '@/important/firebase';
+
 
 export default function Preview() {
+    const { currentUser } = useAuth();
     const [username, setUsername] = useState("");
 
     useEffect(() => {
-        const sessionUsername = getSessionCookie("adminLinker");
-        if (sessionUsername === undefined) {
+        // If there's no user, clear the username and do nothing.
+        if (!currentUser) {
+            setUsername("");
             return;
         }
 
-        async function getUserData() {
-            const data = await fetchUserData(sessionUsername);
-            setUsername(data?.username);
-        }
-        getUserData();
-    }, []);
+        // Use onSnapshot for real-time updates to the username
+        const docRef = doc(fireApp, "AccountData", currentUser.uid);
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setUsername(data?.username || "");
+            } else {
+                // This might happen for a new user before their document is created
+                setUsername("");
+            }
+        });
+
+        // Cleanup the listener when the component unmounts or the user changes
+        return () => unsubscribe();
+
+    }, [currentUser]);
 
     useEffect(() => {
         const container = document.getElementById("container");
@@ -46,6 +61,7 @@ export default function Preview() {
         };
 
         // Track the mouse position relative to the center of the container.
+        if (!container) return;
         mouse.setOrigin(container);
 
         let counter = 0;
@@ -107,7 +123,18 @@ export default function Preview() {
                             <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={25} height={25} alt="loading" className=" mix-blend-screen" />
                         </div>
                         <div className="h-full w-full">
-                            <iframe src={`https://mylinks.fabiconcept.online/${username}`} frameBorder="0" className='h-full bg-white w-full'></iframe>
+                            {username ? (
+                                <iframe
+                                    src={`http://localhost:3000/${username}`}
+                                    frameBorder="0"
+                                    className='h-full bg-white w-full'
+                                    title="User Profile Preview"
+                                ></iframe>
+                            ) : (
+                                <div className="h-full w-full bg-white flex items-center justify-center">
+                                    {/* Optional: Show a message when no user is loaded */}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -1,7 +1,9 @@
+// app/layout.js
 import './globals.css';
 import './styles/fonts.css';
 import { Inter } from 'next/font/google';
 import NextTopLoader from "nextjs-toploader";
+import { AuthProvider } from '@/contexts/AuthContext';
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -14,8 +16,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className={inter.className}>
-        <NextTopLoader color='#8129D9' />
-        {children}
+        <AuthProvider>
+          <NextTopLoader color='#8129D9' />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   )

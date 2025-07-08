@@ -5,11 +5,12 @@ import { FaArrowLeft, FaArrowRightArrowLeft, FaArrowUp } from "react-icons/fa6";
 import { useRouter } from "next/navigation";
 import { useDebounce } from "@/LocalHooks/useDebounce";
 import Image from "next/image";
-import { setSessionCookie } from "@/lib/authentication/session";
 import { collection, onSnapshot } from "firebase/firestore";
 import { fireApp } from "@/important/firebase";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Form() {
+    const { currentUser } = useAuth();
     const [existingUsernames, setExistingUsernames] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasError, setHasError] = useState(0);
@@ -19,16 +20,23 @@ export default function Form() {
     const [errorMessage, setErrorMessage] = useState("");
     const debouncedUsername = useDebounce(username, 500);
 
-    useEffect(()=>{
-        if(username !== "") {
-            if(existingUsernames.includes(String(username).toLowerCase())){
+    // Redirect if user is already logged in
+    useEffect(() => {
+        if (currentUser) {
+            router.push("/dashboard");
+        }
+    }, [currentUser, router]);
+
+    useEffect(() => {
+        if (username !== "") {
+            if (existingUsernames.includes(String(username).toLowerCase())) {
                 setHasError(1);
                 setCanProceed(false);
                 setErrorMessage("This username is already taken.");
                 return;
             }
             
-            if(username.length < 3){
+            if (username.length < 3) {
                 setHasError(1);
                 setCanProceed(false);
                 setErrorMessage("Username is too short.");
@@ -42,12 +50,10 @@ export default function Form() {
                 return;
             }
 
-
             setHasError(2);
             setCanProceed(true);
             return;
-
-        }else{
+        } else {
             setHasError(0);
             setCanProceed(false);
         }
@@ -55,40 +61,62 @@ export default function Form() {
 
     const handleSumbit = (e) => { 
         e.preventDefault();
-        if(canProceed && !isLoading){
+        if (canProceed && !isLoading) {
             setIsLoading(true);
-            setSessionCookie("username", username);
+            // Store username in localStorage temporarily for the signup process
+            localStorage.setItem("pendingUsername", username);
             router.push("/signup");
             setCanProceed(false);
         }
     }
 
     useEffect(() => {
-        
         function fetchExistingUsername() {
             const existingUsernames = [];
         
-            const collectionRef = collection(fireApp, "accounts");
+            // Check both AccountData (new Firebase Auth users) and accounts (old users)
+            const accountDataRef = collection(fireApp, "AccountData");
+            const accountsRef = collection(fireApp, "accounts");
         
-            onSnapshot(collectionRef, (querySnapshot) => {
-                querySnapshot.forEach((credential) => {
-                    const data = credential.data();
-                    const { username } = data;
-                    existingUsernames.push(String(username).toLowerCase());
+            // Listen to AccountData collection
+            const unsubscribeAccountData = onSnapshot(accountDataRef, (querySnapshot) => {
+                const newUsernames = [];
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.username) {
+                        newUsernames.push(String(data.username).toLowerCase());
+                    }
                 });
                 
-                setExistingUsernames(existingUsernames);
+                // Listen to accounts collection (legacy)
+                const unsubscribeAccounts = onSnapshot(accountsRef, (querySnapshot) => {
+                    const allUsernames = [...newUsernames];
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        if (data.username) {
+                            allUsernames.push(String(data.username).toLowerCase());
+                        }
+                    });
+                    
+                    setExistingUsernames(allUsernames);
+                });
+
+                return unsubscribeAccounts;
             });
+
+            return unsubscribeAccountData;
         }
 
-        fetchExistingUsername();
+        const unsubscribe = fetchExistingUsername();
 
-        // Init
+        // 3D Animation Effect
         const container = document.getElementById("container");
         const inner = document.getElementById("inner");
         const inputDiv = document.getElementById("input");
 
-        // Mouse
+        if (!container || !inner || !inputDiv) return;
+
+        // Mouse tracking object
         const mouse = {
             _x: 0,
             _y: 0,
@@ -153,13 +181,21 @@ export default function Form() {
         document.onmouseleave = onMouseLeaveHandler;
         document.onmousemove = onMouseMoveHandler;
 
-        // Cleanup
+        // Cleanup function
         return () => {
             document.onmouseenter = null;
             document.onmouseleave = null;
             document.onmousemove = null;
+            if (unsubscribe && typeof unsubscribe === 'function') {
+                unsubscribe();
+            }
         };
     }, []);
+
+    // Don't render if user is already logged in
+    if (currentUser) {
+        return null;
+    }
 
     return (
         <div className="w-fit h-fit z-10" id="container">
@@ -169,7 +205,14 @@ export default function Form() {
                 <div className={`flex items-stretch gap-2 relative filter ${hasError === 1 ? "dropshadow-bad" : hasError === 2 ? "dropshadow-good" : "dropshadow"}`} id="input">
                     <div className={`flex items-center rounded-l-xl bg-white px-6 text-sm md:text-2xl sm:text-md ${hasError === 1 ? "border-red-500 border-[2px]" : hasError === 2 ? "border-green-500 border-[2px]" : ""}`}>
                         <label className="opacity-40 font-semibold">mylinktr.ee/:</label>
-                        <input type="text" className="bg-transparent peer py-5 px-2 outline-none border-none md:w-auto w-[8rem]" placeholder="fabiconcept" onChange={(e)=>setUsername(e.target.value)} required />
+                        <input 
+                            type="text" 
+                            className="bg-transparent peer py-5 px-2 outline-none border-none md:w-auto w-[8rem]" 
+                            placeholder="fabiconcept" 
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)} 
+                            required 
+                        />
                     </div>
                     <button type="submit" className={`px-4 grid place-items-center ${canProceed ? "bg-themeGreen text-white": "bg-slate-400 text-white"} rounded-r-xl font-semibold cursor-pointer hover:scale-110 active:scale-95 active:opacity-80 uppercase text-sm md:text-lg sm:text-md`}>
                         {!isLoading && <span className="nopointer">
