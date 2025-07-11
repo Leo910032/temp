@@ -2,14 +2,16 @@
 
 import { realEscapeString } from '@/lib/utilities';
 import Image from 'next/image';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'; // ADD useMemo
 import { FaPencil, FaX } from 'react-icons/fa6';
 import { ManageLinksContent } from '../../general components/ManageLinks';
 import { useDebounce } from '@/LocalHooks/useDebounce';
+import { useTranslation } from '@/lib/translation/useTranslation'; // ADD THIS IMPORT
 
 // --- PROPS HAVE CHANGED ---
 // No longer uses `index`. Accepts dnd-kit props.
 export default function Normal({ item, itemRef, style, listeners, attributes, isOverlay = false }) {
+    const { t, isInitialized } = useTranslation(); // ADD TRANSLATION HOOK
     const { setData } = useContext(ManageLinksContent);
     const [editing, setEditing] = useState(false);
     const [textContent, setTextContent] = useState(item.title);
@@ -17,6 +19,20 @@ export default function Normal({ item, itemRef, style, listeners, attributes, is
     const titleRef = useRef();
     const [checkboxChecked, setCheckboxChecked] = useState(item.isActive);
     const debounceCheckbox = useDebounce(checkboxChecked, 500);
+
+    // PRE-COMPUTE TRANSLATIONS FOR PERFORMANCE
+    const translations = useMemo(() => {
+        if (!isInitialized) return {};
+        return {
+            enterTextPlaceholder: t('dashboard.links.item.enter_text_placeholder'),
+            headlineTitleDefault: t('dashboard.links.item.headline_title_default'),
+            deleteTooltip: t('dashboard.links.item.delete_tooltip'),
+            deleteHeader: t('dashboard.links.item.delete_header'),
+            deleteConfirmationQuestion: t('dashboard.links.item.delete_confirmation_question'),
+            cancelButton: t('dashboard.links.item.cancel_button'),
+            deleteButton: t('dashboard.links.item.delete_button'),
+        };
+    }, [t, isInitialized]);
 
     useEffect(() => {
         if (editing) {
@@ -78,6 +94,15 @@ export default function Normal({ item, itemRef, style, listeners, attributes, is
 
     const containerClasses = `rounded-3xl border flex flex-col bg-white ${isOverlay ? 'shadow-lg' : ''}`;
 
+    // LOADING STATE WHILE TRANSLATIONS LOAD
+    if (!isInitialized) {
+        return (
+            <div ref={itemRef} style={style} className={`${containerClasses} h-[8rem] bg-gray-200 animate-pulse`}>
+                {/* You can add more detailed skeleton elements here if needed */}
+            </div>
+        )
+    }
+
     return (
         // 1. REMOVED Draggable wrapper. Main container gets ref and style.
         <div
@@ -104,13 +129,13 @@ export default function Normal({ item, itemRef, style, listeners, attributes, is
                         {editing && <input
                             type="text"
                             className='w-auto text-center border-none outline-none'
-                            placeholder='Enter text'
+                            placeholder={translations.enterTextPlaceholder}
                             onChange={handleUpdateContent}
                             onBlur={() => setEditing(false)}
                             value={textContent}
                             ref={titleRef}
                         />}
-                        {!editing && <span>{textContent === "" ? "Headline title" : textContent}</span>}
+                        {!editing && <span>{textContent === "" ? translations.headlineTitleDefault : textContent}</span>}
                         {!editing && <FaPencil className='text-sm' />}
                     </div>
                     {editing && <div className='text-sm mt-2 opacity-70'>
@@ -128,27 +153,27 @@ export default function Normal({ item, itemRef, style, listeners, attributes, is
                         <Image src={"https://linktree.sirv.com/Images/icons/trash.svg"} alt="delete" className={`${wantsToDelete ? "filter invert" : "opacity-60 group-hover:opacity-100"}`} height={17} width={17} />
                         {!wantsToDelete && <div
                             className={`nopointer group-hover:block hidden absolute -translate-x-1/2 left-1/2 translate-y-3 bg-black text-white text-sm rounded-lg px-2 py-1 after:absolute after:h-0 after:w-0 after:border-l-[6px] after:border-r-[6px] after:border-l-transparent after:border-r-transparent after:border-b-[8px] after:border-b-black after:-top-2 after:-translate-x-1/2 after:left-1/2`}
-                        >delete</div>}
+                        >{translations.deleteTooltip}</div>}
                     </div>
                 </div>
             </div>
 
             <div className={`w-full flex flex-col ${wantsToDelete ? "h-[9.5rem]" : "h-0"} overflow-hidden transition-all duration-300`}>
                 <div className='relative z-[1] w-full bg-gray-300 text-center sm:text-sm text-xs font-semibold py-1'>
-                    Delete
+                    {translations.deleteHeader}
                     <span className='absolute -translate-y-1/2 top-1/2 right-2 text-sm cursor-pointer' onClick={() => setWantsToDelete(false)}>
                         <FaX />
                     </span>
                 </div>
                 <div className='relative w-full text-center sm:text-sm text-xs font-semibold py-3'>
-                    Delete this forever?
+                    {translations.deleteConfirmationQuestion}
                 </div>
                 <div className='p-4 flex gap-5'>
                     <div className={`flex items-center gap-3 justify-center p-3 rounded-3xl cursor-pointer active:scale-95 active:opacity-60 active:translate-y-1 hover:scale-[1.005] w-[10rem] flex-1 text-sm border`} onClick={() => setWantsToDelete(false)}>
-                        Cancel
+                        {translations.cancelButton}
                     </div>
                     <div className={`flex items-center gap-3 justify-center p-3 rounded-3xl cursor-pointer active:scale-95 active:opacity-60 active:translate-y-1 hover:scale-[1.005] w-[10rem] flex-1 text-sm bg-btnPrimary text-white`} onClick={handleDelete}>
-                        Delete
+                        {translations.deleteButton}
                     </div>
                 </div>
             </div>

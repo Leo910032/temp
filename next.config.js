@@ -52,6 +52,7 @@ const nextConfig = {
       '@/signup': path.resolve(__dirname, 'app/signup'),
       '@/styles': path.resolve(__dirname, 'styles'),
       '@/user': path.resolve(__dirname, 'app/[userId]'),
+      '@/locales': path.resolve(__dirname, 'public/locales'),
       '@/app': path.resolve(__dirname, 'app')
     };
     return config;

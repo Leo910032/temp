@@ -1,14 +1,17 @@
 "use client"
 import { useDebounce } from "@/LocalHooks/useDebounce";
+import { useTranslation } from "@/lib/translation/useTranslation"; // ADD THIS IMPORT
 import { generateRandomId, isValidURL } from "@/lib/utilities";
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useState, useMemo } from "react"; // ADD useMemo
 import { FaAngleRight, FaPlus, FaX } from "react-icons/fa6";
 import BrandItem from "./BrandItem";
 import PickBrandModal from "../general components/PickBrandModal";
 import { ManageLinksContent } from "../general components/ManageLinks";
 
 export const addBtnContext = React.createContext();
+
 export default function AddBtn() {
+    const { t, isInitialized } = useTranslation(); // ADD TRANSLATION HOOK
     const [btnState, setBtnState] = useState(0);
     const [btnStyle, setBtnStyle] = useState(`p-3 cursor-pointer active:scale-95 active:opacity-60 active:translate-y-1 hover:scale-[1.005] text-white bg-btnPrimary hover:bg-btnPrimaryAlt`)
     const [url, setUrl] = useState('');
@@ -16,6 +19,25 @@ export default function AddBtn() {
     const [urlValid, setUrlValid] = useState(false);
     const [modalShowing, setModalShowing] = useState(false);
     const { setData } = useContext(ManageLinksContent);
+
+    // PRE-COMPUTE TRANSLATIONS FOR PERFORMANCE
+    const translations = useMemo(() => {
+        if (!isInitialized) return {};
+        return {
+            addLink: t('dashboard.links.add_link'),
+            enterUrl: t('dashboard.links.enter_url'),
+            urlPlaceholder: t('dashboard.links.url_placeholder'),
+            add: t('dashboard.links.add'),
+            inspiredByInterest: t('dashboard.links.inspired_by_interest'),
+            viewAll: t('dashboard.links.view_all'),
+            // Brand items
+            twitterHandle: t('dashboard.links.brands.twitter_handle'),
+            tiktokProfile: t('dashboard.links.brands.tiktok_profile'),
+            instagramHandle: t('dashboard.links.brands.instagram_handle'),
+            videoLink: t('dashboard.links.brands.video_link'),
+            musicLink: t('dashboard.links.brands.music_link')
+        };
+    }, [t, isInitialized]);
 
     const addItem = (params) => {
         const newItem = {
@@ -85,16 +107,25 @@ export default function AddBtn() {
         setUrlValid(isValidURL(url));
     }, [debounceUrl]);
 
+    // LOADING STATE WHILE TRANSLATIONS LOAD
+    if (!isInitialized) {
+        return (
+            <div className="p-3 h-[3rem] bg-gray-200 rounded-3xl animate-pulse flex items-center justify-center">
+                <div className="h-4 w-20 bg-gray-300 rounded"></div>
+            </div>
+        );
+    }
+
     const content = (
         btnState === 0 ?
             <div className="flex items-center gap-3 justify-center ">
                 <FaPlus />
-                <span>Add Link</span>
+                <span>{translations.addLink}</span>
             </div>
             :
             <div className="w-full py-4 overflow-hidden linear">
                 <div className="flex justify-between items-center text-sm duration-0 px-6">
-                    <span className={'font-semibold'}>Enter Url</span>
+                    <span className={'font-semibold'}>{translations.enterUrl}</span>
                     <div className={'p-2 hover:bg-black hover:bg-opacity-[0.05] active:scale-90 font-light rounded-full cursor-pointer'} onClick={handleClose}><FaX /></div>
                 </div>
                 <form className={'flex items-center gap-4 py-4 px-6 border-b max-w-full'} onSubmit={handleSubmit}>
@@ -107,28 +138,28 @@ export default function AddBtn() {
                             onChange={(e) => setUrl(e.target.value)}
                         />
                         <label className="absolute px-3 pointer-events-none top-[.25rem] left-1 text-xs text-main-green peer-placeholder-shown:top-2/4 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-base peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-slate-500 peer-placeholder-shown:left-0 opacity-40 transition duration-[250] ease-linear">
-                            URL
+                            {translations.urlPlaceholder}
                         </label>
                     </div>
                     <button type="submit" className={`rounded-3xl py-3 px-6 ${urlValid ? "bg-btnPrimary text-white cursor-pointer" : "bg-black bg-opacity-[0.1] text-black cursor-not-allowed opacity-70"}`}>
-                        Add
+                        {translations.add}
                     </button>
                 </form>
                 <section className="pt-4">
                     <div className="flex justify-between items-center text-sm duration-0 px-6">
-                        <span className={'font-semibold opacity-40'}>Inspired by your interest</span>
+                        <span className={'font-semibold opacity-40'}>{translations.inspiredByInterest}</span>
                         <div className={'flex gap-1 p-2 active:scale-90 font-light group text-btnPrimary cursor-pointer items-center'}>
-                            <span className="group-hover:underline" onClick={() => setModalShowing(true)}>View all</span>
+                            <span className="group-hover:underline" onClick={() => setModalShowing(true)}>{translations.viewAll}</span>
                             <FaAngleRight />
                         </div>
                     </div>
                     <div className="flex flex-wrap justify-center gap-3 px-6 py-3">
                         <div className="flex flex-wrap justify-center sm:gap-4 gap-2">
-                            <BrandItem imgAlt={'tw icon'} btnData={{ itemTitle: "Twitter Handle", itemUrl: "", uniqueType: "Twitter" }} imgSrc={"https://linktree.sirv.com/Images/brands/twitter.svg"} />
-                            <BrandItem imgAlt={'tk icon'} btnData={{ itemTitle: "Tiktok Profile", itemUrl: "", uniqueType: "TikTok Account" }} imgSrc={"https://linktree.sirv.com/Images/brands/tiktok.svg"} />
-                            <BrandItem imgAlt={'hd icon'} btnData={{ itemTitle: "Instagram Handle", itemUrl: "", uniqueType: "Instagram" }} imgSrc={"https://linktree.sirv.com/Images/brands/header.svg"} />
-                            <BrandItem imgAlt={'vd icon'} btnData={{ itemTitle: "Video Link", itemUrl: "", uniqueType: "Video" }} imgSrc={"https://linktree.sirv.com/Images/brands/video.svg"} />
-                            <BrandItem imgAlt={'mx icon'} btnData={{ itemTitle: "Music Link", itemUrl: "", uniqueType: "Music" }} imgSrc={"https://linktree.sirv.com/Images/brands/music.svg"} />
+                            <BrandItem imgAlt={'tw icon'} btnData={{ itemTitle: translations.twitterHandle, itemUrl: "", uniqueType: "Twitter" }} imgSrc={"https://linktree.sirv.com/Images/brands/twitter.svg"} />
+                            <BrandItem imgAlt={'tk icon'} btnData={{ itemTitle: translations.tiktokProfile, itemUrl: "", uniqueType: "TikTok Account" }} imgSrc={"https://linktree.sirv.com/Images/brands/tiktok.svg"} />
+                            <BrandItem imgAlt={'hd icon'} btnData={{ itemTitle: translations.instagramHandle, itemUrl: "", uniqueType: "Instagram" }} imgSrc={"https://linktree.sirv.com/Images/brands/header.svg"} />
+                            <BrandItem imgAlt={'vd icon'} btnData={{ itemTitle: translations.videoLink, itemUrl: "", uniqueType: "Video" }} imgSrc={"https://linktree.sirv.com/Images/brands/video.svg"} />
+                            <BrandItem imgAlt={'mx icon'} btnData={{ itemTitle: translations.musicLink, itemUrl: "", uniqueType: "Music" }} imgSrc={"https://linktree.sirv.com/Images/brands/music.svg"} />
                         </div>
                     </div>
                 </section>

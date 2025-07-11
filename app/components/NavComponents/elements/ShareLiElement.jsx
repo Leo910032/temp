@@ -1,8 +1,7 @@
-"Use client"
-import { useContext, useState } from "react";
+"use client"
+import { useContext, useState, useRef, useEffect } from "react";
 import { ShareContext } from "../ShareCard";
 import Link from "next/link";
-import { useRef } from "react";
 import { 
     FacebookShareButton, 
     LinkedinShareButton, 
@@ -12,10 +11,10 @@ import {
     EmailShareButton,
 } from "react-share";
 import { makeValidUrl } from "@/lib/utilities";
-import { useEffect } from "react";
 
 export default function ShareLiElement({children, nextPage }) {
-    const { myLink, setCurrentPage } = useContext(ShareContext);
+    const shareContext = useContext(ShareContext);
+    const { myLink, setCurrentPage } = shareContext || {};
     const [linkToOpen, setLinkToOpen] = useState("");
     const FacebookRef = useRef();
     const LinkedinRef = useRef();
@@ -23,76 +22,139 @@ export default function ShareLiElement({children, nextPage }) {
     const WhatsAppRef = useRef();
     const MessengerRef = useRef();
     const EmailRef = useRef();
-    const linkToOpenRef = useRef();
 
     const openLinkInNewTab = (url) => {
         setLinkToOpen(url);
-      };
+    };
 
-    const handleNextPage = () => {
-        if (String(nextPage).includes("shareNow-")) {
-            const shareTo = String(nextPage).split("-")[1];
+    const handleNextPage = (e) => {
+        // Stop event from bubbling up to parent elements
+        // This prevents the ShareCard from closing
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) {
+            e.stopImmediatePropagation();
+        }
+        
+        if (!myLink) {
+            return;
+        }
+        
+        if (!setCurrentPage) {
+            return;
+        }
+        
+        // Handle shareNow- prefixed actions
+        if (typeof nextPage === 'string' && nextPage.includes("shareNow-")) {
+            const shareTo = nextPage.split("-")[1];
+            
             switch (shareTo) {
                 case "Snapchat":
-                    openLinkInNewTab(`https://www.snapchat.com/scan?attachmentUrl=${myLink}`);
+                    openLinkInNewTab(`https://www.snapchat.com/scan?attachmentUrl=${encodeURIComponent(myLink)}`);
                     break;
                 case "Facebook":
-                    FacebookRef.current.click();
+                    if (FacebookRef.current) {
+                        FacebookRef.current.click();
+                    }
                     break;
                 case "Linkedin":
-                    LinkedinRef.current.click();
+                    if (LinkedinRef.current) {
+                        LinkedinRef.current.click();
+                    }
                     break;
                 case "Twitter":
-                    TwitterRef.current.click();
+                    if (TwitterRef.current) {
+                        TwitterRef.current.click();
+                    }
                     break;
                 case "WhatsApp":
-                    WhatsAppRef.current.click();
+                    if (WhatsAppRef.current) {
+                        WhatsAppRef.current.click();
+                    }
                     break;
                 case "Messenger":
-                    MessengerRef.current.click();
+                    if (MessengerRef.current) {
+                        MessengerRef.current.click();
+                    }
                     break;
                 case "Email":
-                    EmailRef.current.click();
+                    if (EmailRef.current) {
+                        EmailRef.current.click();
+                    }
                     break;
-            
                 default:
                     break;
             }
             return;
         }
         
-        if (nextPage.type && String(nextPage.type).includes("goTo-")) {
-            const shareTo = String(nextPage).split("-")[1];
+        if (nextPage && typeof nextPage === 'object' && nextPage.type && nextPage.type.includes("goTo-")) {
             openLinkInNewTab(makeValidUrl(nextPage.goTo));
             return;
         }
 
         if (nextPage === "myLink") {
             openLinkInNewTab(myLink);
-            return
+            return;
         }
 
         setCurrentPage((previousPages) => [...previousPages, { page: nextPage }]);
-    }
+    };
 
     useEffect(() => {
         if (linkToOpen) {
-            linkToOpenRef.current.click();
+            // Use window.open instead of clicking a Link element for more reliable behavior
+            const newWindow = window.open(linkToOpen, '_blank', 'noopener,noreferrer');
+            if (newWindow) {
+                newWindow.focus();
+            } else {
+                // Fallback: Create a temporary link element
+                const tempLink = document.createElement('a');
+                tempLink.href = linkToOpen;
+                tempLink.target = '_blank';
+                tempLink.rel = 'noopener noreferrer';
+                document.body.appendChild(tempLink);
+                tempLink.click();
+                document.body.removeChild(tempLink);
+            }
             setLinkToOpen("");
         }
     }, [linkToOpen]);
 
+    const handleMouseDown = (e) => {
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) {
+            e.stopImmediatePropagation();
+        }
+    };
+
     return (
-        <div className="w-full flex justify-between items-center p-3 rounded-xl select-none hover:bg-black hover:bg-opacity-5 cursor-pointer active:scale-95" onClick={handleNextPage}>
+        <div 
+            className="w-full flex justify-between items-center p-3 rounded-xl select-none hover:bg-black hover:bg-opacity-5 cursor-pointer active:scale-95" 
+            onClick={handleNextPage}
+            onMouseDown={handleMouseDown}
+        >
             {children}
+            
             <section className="hidden">
-                <FacebookShareButton ref={FacebookRef} url={myLink}></FacebookShareButton>
-                <LinkedinShareButton ref={LinkedinRef} url={myLink}></LinkedinShareButton>
-                <TwitterShareButton ref={TwitterRef} url={myLink}></TwitterShareButton>
-                <WhatsappShareButton ref={WhatsAppRef} url={myLink}></WhatsappShareButton>
-                <FacebookMessengerShareButton ref={MessengerRef} url={myLink}></FacebookMessengerShareButton>
-                <EmailShareButton ref={EmailRef} url={myLink}></EmailShareButton>
-                <Link ref={linkToOpenRef} href={linkToOpen} target="_blank" className="pointer-events-none"></Link>
+                <FacebookShareButton ref={FacebookRef} url={myLink} quote="Check out my Linktree!">
+                    <div>Facebook Share</div>
+                </FacebookShareButton>
+                <LinkedinShareButton ref={LinkedinRef} url={myLink} title="Check out my Linktree!">
+                    <div>LinkedIn Share</div>
+                </LinkedinShareButton>
+                <TwitterShareButton ref={TwitterRef} url={myLink} title="Check out my Linktree!">
+                    <div>Twitter Share</div>
+                </TwitterShareButton>
+                <WhatsappShareButton ref={WhatsAppRef} url={myLink} title="Check out my Linktree!">
+                    <div>WhatsApp Share</div>
+                </WhatsappShareButton>
+                <FacebookMessengerShareButton ref={MessengerRef} url={myLink} appId="123456789">
+                    <div>Messenger Share</div>
+                </FacebookMessengerShareButton>
+                <EmailShareButton ref={EmailRef} url={myLink} subject="Check out my Linktree!" body="Here's my Linktree: ">
+                    <div>Email Share</div>
+                </EmailShareButton>
             </section>
         </div>
     );

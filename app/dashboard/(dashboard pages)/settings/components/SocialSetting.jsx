@@ -1,7 +1,7 @@
 "use client"
 import Image from "next/image";
 import SocialCard from "./mini components/SocialCard";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import React from "react";
 import Position from "../elements/Position";
 import Link from "next/link";
@@ -11,11 +11,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { fireApp } from "@/important/firebase";
 import { updateSocials } from "@/lib/update data/updateSocials";
+import { useTranslation } from "@/lib/translation/useTranslation";
 
 export const SocialContext = React.createContext();
 
 export default function SocialSetting() {
-    const { currentUser } = useAuth(); // Get current user from Firebase Auth
+    const { t, isInitialized } = useTranslation();
+    const { currentUser } = useAuth();
     const [addIconModalOpen, setAddIconModalOpen] = useState(false);
     const [settingIconModalOpen, setSettingIconModalOpen] = useState({
         status: false,
@@ -26,56 +28,62 @@ export default function SocialSetting() {
     const [socialsArray, setSocialsArray] = useState([]);
     const [hasLoaded, setHasLoaded] = useState(false);
 
-    useEffect(() => {
-        function fetchLinks() {
-            // Only fetch if user is authenticated
-            if (!currentUser) return;
-
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
-
-            const unsubscribe = onSnapshot(docRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const { socials } = docSnap.data();
-                    setSocialsArray(socials ? socials : []);
-                } else {
-                    // Document doesn't exist, set empty array
-                    setSocialsArray([]);
-                }
-            }, (error) => {
-                console.error("Error fetching socials:", error);
-                setSocialsArray([]);
-            });
-
-            // Return cleanup function
-            return unsubscribe;
-        }
-
-        const unsubscribe = fetchLinks();
-        
-        // Cleanup on unmount or user change
-        return () => {
-            if (unsubscribe && typeof unsubscribe === 'function') {
-                unsubscribe();
-            }
+    const translations = useMemo(() => {
+        if (!isInitialized) return {};
+        return {
+            title: t('dashboard.settings.social_icons.title'),
+            cardTitle: t('dashboard.settings.social_icons.card_title'),
+            cardSubtitle: t('dashboard.settings.social_icons.card_subtitle'),
+            addIconButton: t('dashboard.settings.social_icons.add_icon_button'),
+            dragAndDropHelper: t('dashboard.settings.social_icons.drag_and_drop_helper'),
+            positionTitle: t('dashboard.settings.social_icons.position_title'),
+            positionSubtitle: t('dashboard.settings.social_icons.position_subtitle'),
+            altIcon: t('dashboard.settings.social_icons.alt_icon'),
         };
-    }, [currentUser]); // Depend on currentUser
+    }, [t, isInitialized]);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        const docRef = doc(collection(fireApp, "AccountData"), currentUser.uid);
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                setSocialsArray(docSnap.data().socials || []);
+            } else {
+                setSocialsArray([]);
+            }
+        }, (error) => {
+            console.error("Error fetching socials:", error);
+            setSocialsArray([]);
+        });
+        return () => {
+            if (unsubscribe && typeof unsubscribe === 'function') unsubscribe();
+        };
+    }, [currentUser]);
 
     useEffect(() => {
         if (!hasLoaded) {
             setHasLoaded(true);
             return;
         }
-        
-        // Only update if user is authenticated
         if (currentUser) {
             updateSocials(socialsArray, currentUser.uid);
         }
     }, [socialsArray, hasLoaded, currentUser]);
 
-    // Don't render if user is not authenticated
-    if (!currentUser) {
-        return null;
+    if (!isInitialized || !currentUser) {
+        return (
+            <div className="w-full my-4 px-2 animate-pulse" id="Settings--SocialLinks">
+                <div className="flex items-center gap-3 py-4">
+                    <div className="h-6 w-6 bg-gray-200 rounded-md"></div>
+                    <div className="h-7 w-32 bg-gray-200 rounded-md"></div>
+                </div>
+                <div className="p-5 bg-gray-200 rounded-lg">
+                    <div className="h-6 w-24 bg-gray-200 rounded-md"></div>
+                    <div className="h-4 w-full bg-gray-200 rounded-md mt-2"></div>
+                    <div className="h-10 w-28 bg-gray-300 rounded-3xl my-7"></div>
+                </div>
+            </div>
+        );
     }
 
     return (
@@ -85,30 +93,32 @@ export default function SocialSetting() {
             setSettingIconModalOpen, 
             setAddIconModalOpen, 
             settingIconModalOpen,
-            currentUser // Add currentUser to context for child components
+            currentUser
         }}>
             <div className="w-full my-4 px-2" id="Settings--SocialLinks">
                 <div className="flex items-center gap-3 py-4">
                     <Image
                         src={"https://linktree.sirv.com/Images/icons/social.svg"}
-                        alt="icon"
+                        alt={translations.altIcon}
                         height={24}
                         width={24}
                     />
-                    <span className="text-xl font-semibold">Social Icons</span>
+                    <span className="text-xl font-semibold">{translations.title}</span>
                 </div>
                 <div className="p-5 bg-white rounded-lg">
                     <div className="grid gap-1">
-                        <span className="font-semibold">Be iconic</span>
-                        <span className="opacity-90 sm:text-base text-sm">Add icons linking to your social profiles, email and more.</span>
+                        <span className="font-semibold">{translations.cardTitle}</span>
+                        <span className="opacity-90 sm:text-base text-sm">{translations.cardSubtitle}</span>
                     </div>
-                    <div className="w-fit rounded-3xl bg-btnPrimary hover:bg-btnPrimaryAlt text-white py-3 px-4 my-7 cursor-pointer active:scale-90 select-none" onClick={()=>setAddIconModalOpen(true)}>Add Icon</div>
+                    <div className="w-fit rounded-3xl bg-btnPrimary hover:bg-btnPrimaryAlt text-white py-3 px-4 my-7 cursor-pointer active:scale-90 select-none" onClick={()=>setAddIconModalOpen(true)}>
+                        {translations.addIconButton}
+                    </div>
                     {socialsArray.length > 0 && <div>
                         <SocialCard array={socialsArray} />
-                        <p className="my-4 opacity-60 text-sm">Drag and drop the icons above to reorder them.</p>
+                        <p className="my-4 opacity-60 text-sm">{translations.dragAndDropHelper}</p>
                         <div className="grid gap-1 text-sm mt-5">
-                            <span className="font-semibold">Position</span>
-                            <span className="opacity-90">Display icons at the:</span>
+                            <span className="font-semibold">{translations.positionTitle}</span>
+                            <span className="opacity-90">{translations.positionSubtitle}</span>
                         </div>
                         <Position />
                     </div>}
@@ -116,7 +126,6 @@ export default function SocialSetting() {
                 </div>
                 {addIconModalOpen && <AddIconModal />}
                 {settingIconModalOpen.status && <EditIconModal />}
-
             </div>
         </SocialContext.Provider>
     );

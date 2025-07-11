@@ -1,21 +1,44 @@
 "use client"
 
-import { useContext, useState } from "react";
+import { useContext, useMemo } from "react";
 import { SupportContext } from "../components/SupportBanner";
+import { useTranslation } from "@/lib/translation/useTranslation";
 
 export default function SupportSwitch() {
+    const { t, isInitialized } = useTranslation();
     const { showSupport, setShowSupport } = useContext(SupportContext);
+
+    const translations = useMemo(() => {
+        if (!isInitialized) return {};
+        return {
+            title: t('dashboard.settings.support_banner.switch_title'),
+            description: t('dashboard.settings.support_banner.switch_description'),
+        };
+    }, [t, isInitialized]);
 
     const handleCheckboxChange = (event) => {
         const checkedStatus = event.target.checked;
         setShowSupport(checkedStatus);
     };
 
+    if (!isInitialized) {
+        return (
+            <section className="flex gap-3 animate-pulse">
+                <div className="flex flex-col gap-2 flex-1">
+                    <div className="h-5 w-1/3 bg-gray-200 rounded-md"></div>
+                    <div className="h-4 w-full bg-gray-200 rounded-md"></div>
+                    <div className="h-4 w-10/12 bg-gray-200 rounded-md"></div>
+                </div>
+                <div className="w-14 h-6 bg-gray-200 rounded-full"></div>
+            </section>
+        );
+    }
+
     return (
         <section className="flex gap-3">
             <div className="flex flex-col gap-2">
-                <span className="font-semibold">Show your support</span>
-                <span className="opacity-70 sm:text-base text-sm">Show your support for important causes with a profile banner. Only one banner can be active at a time.</span>
+                <span className="font-semibold">{translations.title}</span>
+                <span className="opacity-70 sm:text-base text-sm">{translations.description}</span>
             </div>
             <div>
                 <label className="cursor-pointer relative flex justify-between items-center group p-2 text-xl">

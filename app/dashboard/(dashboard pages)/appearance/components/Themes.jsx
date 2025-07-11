@@ -5,6 +5,8 @@ export default function Themes() {
     return (
         <div className="w-full bg-white rounded-3xl my-3 flex flex-col p-6">
             <div className="grid sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] sm:gap-4 gap-2 w-full">
+                {/* The "text" prop must remain in English for the logic to work. */}
+                {/* The ThemeCard component will handle displaying the translated name. */}
                 <ThemeCard />
                 <ThemeCard type={1} text={"Matrix"} pic={"https://linktree.sirv.com/Images/bg/selector-matrix.gif"} />
                 <ThemeCard type={1} text={"New Mario"} pic={"https://linktree.sirv.com/Images/Scene/Mario/selector-mario.jpg"} />

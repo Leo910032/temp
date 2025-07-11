@@ -1,92 +1,77 @@
 "use client"
 import Image from "next/image";
 import SupportSwitch from "../elements/SupportSwitch";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import ChooseCause from "./ChooseCause";
 import { useAuth } from "@/contexts/AuthContext";
 import { fireApp } from "@/important/firebase";
 import { collection, doc, onSnapshot } from "firebase/firestore";
-// Import from the correct file path
 import { updateSupportBanner, updateSupportBannerStatus } from "@/lib/update data/updateSocials";
+import { useTranslation } from "@/lib/translation/useTranslation";
 
 export const SupportContext = React.createContext();
 
 export default function SupportBanner() {
+    const { t, isInitialized } = useTranslation();
     const { currentUser } = useAuth();
     const [showSupport, setShowSupport] = useState(null);
     const [chosenGroup, setChosenGroup] = useState(null);
     const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
 
-    // Effect to update the chosen cause in Firestore
-    useEffect(() => {
-        // Don't run update if data hasn't loaded, user isn't logged in, or this is the initial load
-        if (chosenGroup === null || !currentUser || !hasInitiallyLoaded) {
-            return;
-        }
+    const translations = useMemo(() => {
+        if (!isInitialized) return {};
+        return {
+            title: t('dashboard.settings.support_banner.title'),
+            altIcon: t('dashboard.settings.support_banner.alt_icon')
+        };
+    }, [t, isInitialized]);
 
-        // Pass currentUser.uid to the updated function
+    useEffect(() => {
+        if (chosenGroup === null || !currentUser || !hasInitiallyLoaded) return;
         updateSupportBanner(chosenGroup, currentUser.uid);
     }, [chosenGroup, currentUser, hasInitiallyLoaded]);
 
-    // Effect to update the banner visibility status in Firestore
     useEffect(() => {
-        if (showSupport === null || !currentUser || !hasInitiallyLoaded) {
-            return;
-        }
-
+        if (showSupport === null || !currentUser || !hasInitiallyLoaded) return;
         updateSupportBannerStatus(showSupport, currentUser.uid);
     }, [showSupport, currentUser, hasInitiallyLoaded]);
 
-    // Effect to fetch initial data for the component
     useEffect(() => {
-        // Only fetch data if the user is authenticated
         if (!currentUser) return;
-
-        const collectionRef = collection(fireApp, "AccountData");
-        const docRef = doc(collectionRef, currentUser.uid);
-
+        const docRef = doc(collection(fireApp, "AccountData"), currentUser.uid);
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists()) {
                 const { supportBanner, supportBannerStatus } = docSnap.data();
                 setChosenGroup(supportBanner !== undefined ? supportBanner : 0);
                 setShowSupport(supportBannerStatus !== undefined ? supportBannerStatus : false);
             } else {
-                // Set default values if the document doesn't exist
                 setChosenGroup(0);
                 setShowSupport(false);
             }
-            
-            // Mark that we've loaded initial data
             if (!hasInitiallyLoaded) {
                 setHasInitiallyLoaded(true);
             }
         }, (error) => {
             console.error("Error fetching support banner data:", error);
-            // Set default values on error
             setChosenGroup(0);
             setShowSupport(false);
-            
-            // Mark that we've loaded initial data (even on error)
             if (!hasInitiallyLoaded) {
                 setHasInitiallyLoaded(true);
             }
         });
-
-        // Cleanup the listener on component unmount
         return () => unsubscribe();
     }, [currentUser, hasInitiallyLoaded]);
 
-    // Don't render anything until we know the user's auth state and have data
-    if (showSupport === null || !hasInitiallyLoaded) {
+    if (!isInitialized || showSupport === null || !hasInitiallyLoaded) {
         return (
-            <div className="w-full my-4 px-2">
+            <div className="w-full my-4 px-2 animate-pulse">
                 <div className="flex items-center gap-3 py-4">
-                    <div className="animate-pulse h-6 w-6 bg-gray-200 rounded"></div>
-                    <div className="animate-pulse h-6 bg-gray-200 rounded w-32"></div>
+                    <div className="h-6 w-6 bg-gray-200 rounded"></div>
+                    <div className="h-7 bg-gray-200 rounded w-40"></div>
                 </div>
-                <div className="p-5 bg-white rounded-lg">
-                    <div className="animate-pulse h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
-                    <div className="animate-pulse h-4 bg-gray-200 rounded w-1/2"></div>
+                <div className="p-5 bg-gray-200 rounded-lg">
+                    <div className="h-5 bg-gray-300 rounded w-2/4 mb-3"></div>
+                    <div className="h-4 bg-gray-300 rounded w-full"></div>
                 </div>
             </div>
         );
@@ -98,11 +83,11 @@ export default function SupportBanner() {
                 <div className="flex items-center gap-3 py-4">
                     <Image
                         src={"https://linktree.sirv.com/Images/icons/support.svg"}
-                        alt="icon"
+                        alt={translations.altIcon}
                         height={24}
                         width={24}
                     />
-                    <span className="text-xl font-semibold">Support banner</span>
+                    <span className="text-xl font-semibold">{translations.title}</span>
                 </div>
                 <div className="p-5 bg-white rounded-lg">
                     <SupportSwitch />

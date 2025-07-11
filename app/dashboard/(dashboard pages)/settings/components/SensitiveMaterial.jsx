@@ -1,55 +1,60 @@
 "use client"
 import Image from 'next/image';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import AgeRestriction from '../elements/AgeRestriction';
 import { useAuth } from '@/contexts/AuthContext';
 import { fireApp } from '@/important/firebase';
 import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { updateSensitiveStatus } from '@/lib/update data/updateSocials';
+import { useTranslation } from '@/lib/translation/useTranslation';
 
 export default function SensitiveMaterial() {
-    const { currentUser } = useAuth(); // Get current user from Firebase Auth
+    const { t, isInitialized } = useTranslation();
+    const { currentUser } = useAuth();
     const [containsSensitiveMaterial, setContainsSensitiveMaterial] = useState(null);
 
+    const translations = useMemo(() => {
+        if (!isInitialized) return {};
+        return {
+            title: t('dashboard.settings.sensitive_material.title'),
+            altIcon: t('dashboard.settings.sensitive_material.alt_icon'),
+            description: t('dashboard.settings.sensitive_material.description'),
+        };
+    }, [t, isInitialized]);
+
     const handleCheckboxChange = (event) => {
-        const checkedStatus = event.target.checked;
-        setContainsSensitiveMaterial(checkedStatus);
+        setContainsSensitiveMaterial(event.target.checked);
     };
 
     useEffect(() => {
-        if (containsSensitiveMaterial === null || !currentUser) {
-            return;
-        }
-
-        // Pass the Firebase Auth UID to the update function
+        if (containsSensitiveMaterial === null || !currentUser) return;
         updateSensitiveStatus(containsSensitiveMaterial, currentUser.uid);
     }, [containsSensitiveMaterial, currentUser]);
 
     useEffect(() => {
-        function fetchTheme() {
-            // Only fetch if user is authenticated
-            if (!currentUser) return;
+        if (!currentUser) return;
+        const docRef = doc(collection(fireApp, "AccountData"), currentUser.uid);
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                setContainsSensitiveMaterial(!!docSnap.data().sensitiveStatus);
+            }
+        });
+        return () => unsubscribe();
+    }, [currentUser]);
 
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, currentUser.uid); // Use Firebase Auth UID
-        
-            const unsubscribe = onSnapshot(docRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const { sensitiveStatus } = docSnap.data();
-                    setContainsSensitiveMaterial(sensitiveStatus ? sensitiveStatus : false);
-                }
-            });
-
-            // Return cleanup function for the snapshot listener
-            return unsubscribe;
-        }
-        
-        fetchTheme();
-    }, [currentUser]); // Depend on currentUser
-
-    // Don't render if user is not authenticated
-    if (!currentUser) {
-        return null;
+    if (!isInitialized || !currentUser) {
+        return (
+            <div className="w-full my-4 px-2 animate-pulse">
+                <div className="flex items-center gap-3 py-4">
+                    <div className="h-6 w-6 bg-gray-200 rounded-md"></div>
+                    <div className="h-7 w-44 bg-gray-200 rounded-md"></div>
+                </div>
+                <div className="p-5 bg-gray-200 rounded-lg flex justify-between items-center">
+                    <div className="h-4 w-3/4 bg-gray-300 rounded-md"></div>
+                    <div className="w-14 h-6 bg-gray-300 rounded-full"></div>
+                </div>
+            </div>
+        );
     }
 
     return (
@@ -57,15 +62,15 @@ export default function SensitiveMaterial() {
             <div className="flex items-center gap-3 py-4">
                 <Image
                     src={"https://linktree.sirv.com/Images/icons/sensitive.svg"}
-                    alt="icon"
+                    alt={translations.altIcon}
                     height={24}
                     width={24}
                 />
-                <span className="text-xl font-semibold">Sensitive material</span>
+                <span className="text-xl font-semibold">{translations.title}</span>
             </div>
             <div className="p-5 bg-white rounded-lg">
                 <div className='flex gap-3 items-center justify-between w-full'>
-                    <span className='opacity-70 sm:text-[.965rem] text-sm'>Display a sensitive content warning before visitors can view your profile.</span>
+                    <span className='opacity-70 sm:text-[.965rem] text-sm'>{translations.description}</span>
                     <div>
                         <label className="cursor-pointer relative flex justify-between items-center group p-2 text-xl">
                             <input 
