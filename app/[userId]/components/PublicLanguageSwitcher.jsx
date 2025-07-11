@@ -1,6 +1,6 @@
 // app/[userId]/components/PublicLanguageSwitcher.jsx
 "use client"
-import { useLanguage } from '../../../lib/languageContext';
+import { useLanguage } from '@/lib/translation/languageContext';
 import { useState } from 'react';
 
 const languages = [

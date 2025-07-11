@@ -12,6 +12,8 @@ import { availableFonts_Classic } from "@/lib/FontsList";
 import ButtonText from "./ButtonText";
 import { FaCopy } from "react-icons/fa6";
 import { toast } from "react-hot-toast";
+import { useTranslation } from "@/lib/translation/useTranslation";
+
 
 export default function Button({ url, content, userId }) {
     const [modifierClass, setModifierClass] = useState("");
@@ -25,7 +27,8 @@ export default function Button({ url, content, userId }) {
     const [accentColor, setAccentColor] = useState([]);
     const [btnFontStyle, setBtnFontStyle] = useState(null);
     const [selectedFontClass, setSelectedFontClass] = useState("");
-
+    const { t, isInitialized } = useTranslation();
+ 
     const [isHovered, setIsHovered] = useState(false);
 
     const urlRef = useRef(null)
@@ -40,25 +43,26 @@ export default function Button({ url, content, userId }) {
      * The `handleCopy` function copies a given URL to the clipboard and displays a success toast
      * notification.
      */
-    const handleCopy = (myUrl) => {
-        if (myUrl) {
-            navigator.clipboard.writeText(myUrl);
-            toast.success(
-                "Link copied",
-                {
-                    style: {
-                        border: '1px solid #6fc276',
-                        padding: '16px',
-                        color: '#6fc276',
-                    },
-                    iconTheme: {
-                        primary: '#6fc276',
-                        secondary: '#FFFAEE',
-                    },
-                }
-            );
-        }
-    };
+   const handleCopy = (myUrl) => {
+    if (myUrl) {
+        navigator.clipboard.writeText(myUrl);
+        
+        // Use translation if available, fallback to hardcoded text
+        const successMessage = isInitialized ? t('public.links.copy_success') : 'Link copied!';
+        
+        toast.success(successMessage, {
+            style: {
+                border: '1px solid #6fc276',
+                padding: '16px',
+                color: '#6fc276',
+            },
+            iconTheme: {
+                primary: '#6fc276',
+                secondary: '#FFFAEE',
+            },
+        });
+    }
+};
 
     /**
      * The function `getRootNameFromUrl` takes a URL as input and returns the root name (hostname) of

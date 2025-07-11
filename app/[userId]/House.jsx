@@ -4,6 +4,7 @@ import UserInfo from "./components/UserInfo";
 import BgDiv from "./components/BgDiv";
 import MyLinks from "./components/MyLinks";
 import SupportBanner from "./components/SupportBanner";
+import PublicLanguageSwitcher from "./components/PublicLanguageSwitcher"; // ADD THIS IMPORT
 import React, { useEffect, useState } from "react";
 import { fireApp } from "@/important/firebase";
 import { collection, doc, getDoc, query, where, getDocs } from "firebase/firestore";
@@ -93,6 +94,9 @@ export default function House({ userId }) {
 
     return (
         <HouseContext.Provider value={{ setSensitiveWarning, sensitiveType, actualUserId }}>
+            {/* ADD LANGUAGE SWITCHER TO ALL VIEWS */}
+            <PublicLanguageSwitcher />
+            
             {!sensitiveWarning ? <>
                 <BgDiv userId={actualUserId} />
 

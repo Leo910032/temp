@@ -1,8 +1,10 @@
+// app/[userId]/page.jsx
 import { fireApp } from "@/important/firebase";
 import { collection, doc, getDoc, query, where, getDocs } from "firebase/firestore";
 import House from "./House";
 import Filter from "bad-words"
 import { Toaster } from "react-hot-toast";
+import { LanguageProvider } from "@/lib/translation/languageContext"; // ADD THIS IMPORT
 
 export async function generateMetadata({ params: { userId } }) {
     try {
@@ -58,9 +60,11 @@ export async function generateMetadata({ params: { userId } }) {
 
 export default function UserLinksPage({ params: { userId } }) {
     return (
-        <div className="w-screen h-screen flex flex-col">
-            <Toaster />
-            <House userId={userId} />
-        </div>
+        <LanguageProvider> {/* WRAP WITH LANGUAGE PROVIDER */}
+            <div className="w-screen h-screen flex flex-col">
+                <Toaster />
+                <House userId={userId} />
+            </div>
+        </LanguageProvider>
     );
 }
