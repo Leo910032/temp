@@ -22,6 +22,7 @@ import MatrixBG from "../elements/themes/Matrix";
 import Mario from "../elements/themes/Mario";
 import Blocks3D from "../elements/themes/3DBlocks";
 import CustomTheme from "../elements/themes/CustomTheme";
+import SnowFall from "../elements/themes/SnowFall";
 
 export const BgContext = React.createContext();
 
@@ -112,6 +113,7 @@ export default function BgDiv({ userId }) {
             {bgType === "Matrix" && <MatrixBG textColor={themeTextColour} />}
             {bgType === "New Mario" && <Mario />}
             {bgType === "Custom" && <CustomTheme />}
+            {bgType === "Snow Fall" && <SnowFall />}
         </BgContext.Provider>
     );
 }

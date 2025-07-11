@@ -17,6 +17,7 @@ export default function House({ userId }) {
     const [hasSensitiveContent, setHasSensitiveContent] = useState(false);
     const [sensitiveType, setSensitiveType] = useState(false);
     const [actualUserId, setActualUserId] = useState(null);
+    const [userNotFound, setUserNotFound] = useState(false);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -60,14 +61,14 @@ export default function House({ userId }) {
                         setSensitiveType(sensitivetype ? sensitivetype : 3);
                     }
                 } else {
-                    // User not found - trigger 404
+                    // User not found
                     console.error("User not found:", userId);
-                    notFound();
+                    setUserNotFound(true);
                 }
                 
             } catch (error) {
                 console.error("Error fetching user:", error);
-                notFound();
+                setUserNotFound(true);
             } finally {
                 setLoading(false);
             }
@@ -76,18 +77,18 @@ export default function House({ userId }) {
         fetchUserByUsername();
     }, [userId]);
 
+    // Show 404 if user not found
+    if (userNotFound) {
+        notFound();
+    }
+
     // Show loading while fetching user
-    if (loading) {
+    if (loading || !actualUserId) {
         return (
             <div className="w-screen h-screen flex items-center justify-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
             </div>
         );
-    }
-
-    // Don't render until we have the actual user ID
-    if (!actualUserId) {
-        return null;
     }
 
     return (

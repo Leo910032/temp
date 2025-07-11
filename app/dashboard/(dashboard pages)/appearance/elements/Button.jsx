@@ -1,11 +1,23 @@
 "use client"
-
 import { updateThemeButton } from "@/lib/update data/updateTheme";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Button({modifierClass, modifierStyles, type}) {
+    const { currentUser } = useAuth();
+    
     const handleUpdateTheme = async() => {
-        await updateThemeButton(type ? type : 0);
+        if (!currentUser) {
+            console.error("User not authenticated");
+            return;
+        }
+        
+        try {
+            await updateThemeButton(type ? type : 0, currentUser.uid);
+        } catch (error) {
+            console.error("Error updating theme button:", error);
+        }
     }
+    
     return (
         <div 
             onClick={handleUpdateTheme}

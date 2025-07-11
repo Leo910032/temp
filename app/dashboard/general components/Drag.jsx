@@ -1,45 +1,110 @@
 "use client"
 import React, { useContext, useEffect, useState } from 'react';
-import { DragDropContext, Droppable } from 'react-beautiful-dnd';
-import Normal from '../general elements/draggables/Normal';
-import Special from '../general elements/draggables/Special';
 import { ManageLinksContent } from './ManageLinks';
 
-const DraggableList = ({ array }) => {
-    const { setData }= useContext(ManageLinksContent);
-    const [items, setItems] = useState([]);
+// --- NEW IMPORTS from dnd-kit ---
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 
-    useEffect(()=>{
-        setItems([...array]); 
+// --- NEW COMPONENT to handle individual items ---
+import { SortableItem } from './SortableItem'; // We will create this file next
+import Normal from '../general elements/draggables/Normal';
+import Special from '../general elements/draggables/Special';
+
+const DraggableList = ({ array }) => {
+    const { setData } = useContext(ManageLinksContent);
+    const [items, setItems] = useState([]);
+    const [activeItem, setActiveItem] = useState(null); // To store the item being dragged for the overlay
+
+    useEffect(() => {
+        setItems(array || []); 
     }, [array]);
 
-    const handleDragEnd = (result) => {
-        if (!result.destination) return;
+    // Setup sensors for different input methods (mouse, touch, keyboard)
+    const sensors = useSensors(
+        useSensor(PointerSensor),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    );
 
-        const newItems = Array.from(items);
-        const [removed] = newItems.splice(result.source.index, 1);
-        newItems.splice(result.destination.index, 0, removed);
+    function handleDragStart(event) {
+        const { active } = event;
+        // Find the full item object from the ID and store it
+        setActiveItem(items.find(item => item.id === active.id) || null);
+    }
 
-        setData(newItems);
-    };
+    function handleDragEnd(event) {
+        const { active, over } = event;
+        setActiveItem(null); // Clear the active item
+
+        if (over && active.id !== over.id) {
+            setItems((currentItems) => {
+                const oldIndex = currentItems.findIndex(item => item.id === active.id);
+                const newIndex = currentItems.findIndex(item => item.id === over.id);
+
+                // Use the arrayMove utility from dnd-kit for a clean reorder
+                const newItems = arrayMove(currentItems, oldIndex, newIndex);
+                
+                // Update the parent component's state
+                setData(newItems);
+                
+                return newItems;
+            });
+        }
+    }
+    
+    // This function renders the item for the DragOverlay (the "clone")
+    function renderDragOverlay() {
+        if (!activeItem) return null;
+        if (activeItem.type === 0) {
+            return <Normal item={activeItem} isOverlay={true} />;
+        } else {
+            return <Special item={activeItem} isOverlay={true} />;
+        }
+    }
 
     return (
-        <DragDropContext onDragEnd={handleDragEnd}>
-            <Droppable droppableId="draggable-list" mode='virtual'>
-                {(provided) => (
-                    <div ref={provided.innerRef} {...provided.droppableProps} className='flex flex-col gap-8'>
-                        {items.map((item, index) => {
-                            if (item.type === 0) {
-                                return <Normal item={item} index={index} key={index+Math.random()} />
-                            }else{
-                                return <Special item={item} index={index} key={index+Math.random()} />
-                            }
-                        })}
-                        {provided.placeholder}
-                    </div>
-                )}
-            </Droppable>
-        </DragDropContext>
+        // 1. DndContext is the main wrapper
+        <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+        >
+            {/* 2. SortableContext provides context to the sortable items */}
+            <SortableContext
+                items={items.map(item => item.id)} // It needs an array of unique IDs
+                strategy={verticalListSortingStrategy}
+            >
+                <div className='flex flex-col gap-8'>
+                    {items.map((item) => (
+                        // 3. Render a SortableItem for each element
+                        <SortableItem key={item.id} id={item.id}>
+                            {item.type === 0 ? <Normal item={item} /> : <Special item={item} />}
+                        </SortableItem>
+                    ))}
+                </div>
+            </SortableContext>
+
+            {/* 4. DragOverlay renders the item being dragged, detached from the list */}
+            <DragOverlay>
+                {activeItem ? renderDragOverlay() : null}
+            </DragOverlay>
+        </DndContext>
     );
 };
 

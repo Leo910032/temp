@@ -8,6 +8,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
+  OAuthProvider,
   sendPasswordResetEmail,
   updateProfile
 } from 'firebase/auth';
@@ -45,6 +46,35 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, [router, pathname]);
 
+  // Helper function to validate username format
+  const validateUsername = (username) => {
+    // Check for spaces
+    if (username.includes(' ')) {
+      throw new Error("Username cannot contain spaces. Please use underscores or hyphens instead.");
+    }
+    
+    // Check length
+    if (username.length < 3) {
+      throw new Error("Username must be at least 3 characters long.");
+    }
+    
+    // Check for invalid characters (only allow letters, numbers, underscores, hyphens)
+    if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+      throw new Error("Username can only contain letters, numbers, underscores, and hyphens.");
+    }
+    
+    return true;
+  };
+
+  // Helper function to generate username from display name
+  const generateUsernameFromDisplayName = (displayName) => {
+    return displayName
+      .toLowerCase()
+      .replace(/\s+/g, '_') // Replace spaces with underscores
+      .replace(/[^a-zA-Z0-9_-]/g, '') // Remove invalid characters
+      .substring(0, 20); // Limit length
+  };
+
   // Helper function to check if username exists
   const checkUsernameExists = async (username) => {
     const accountsRef = collection(fireApp, "AccountData");
@@ -70,9 +100,29 @@ export function AuthProvider({ children }) {
   const createUserDocument = async (user, additionalData = {}) => {
     const userRef = doc(fireApp, "AccountData", user.uid);
     
+    let username = additionalData.username;
+    
+    // If no username provided, generate from display name or email
+    if (!username) {
+      if (user.displayName) {
+        username = generateUsernameFromDisplayName(user.displayName);
+      } else {
+        username = user.email.split('@')[0].replace(/[^a-zA-Z0-9_-]/g, '_');
+      }
+      
+      // Make sure the generated username is unique
+      let baseUsername = username;
+      let counter = 1;
+      
+      while (await checkUsernameExists(username)) {
+        username = `${baseUsername}_${counter}`;
+        counter++;
+      }
+    }
+    
     await setDoc(userRef, {
       displayName: additionalData.username || user.displayName || user.email.split('@')[0],
-      username: additionalData.username || user.displayName || user.email.split('@')[0],
+      username: username,
       email: user.email,
       links: [],
       socials: [],
@@ -85,6 +135,9 @@ export function AuthProvider({ children }) {
 
   // Create account with email/password
   const signup = async (email, password, username) => {
+    // Validate username format
+    validateUsername(username);
+    
     // Check if username already exists
     const usernameExists = await checkUsernameExists(username);
     if (usernameExists) {
@@ -124,6 +177,51 @@ export function AuthProvider({ children }) {
   // Google sign in
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
+    // Add additional scopes if needed
+    provider.addScope('profile');
+    provider.addScope('email');
+    
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = userCredential.user;
+
+    // Check if user document exists, create if not
+    const userRef = doc(fireApp, "AccountData", user.uid);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      await createUserDocument(user);
+    }
+
+    return user;
+  };
+
+  // Microsoft sign in
+  const signInWithMicrosoft = async () => {
+    const provider = new OAuthProvider('microsoft.com');
+    // Add additional scopes if needed
+    provider.addScope('https://graph.microsoft.com/User.Read');
+    
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = userCredential.user;
+
+    // Check if user document exists, create if not
+    const userRef = doc(fireApp, "AccountData", user.uid);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      await createUserDocument(user);
+    }
+
+    return user;
+  };
+
+  // Apple sign in
+  const signInWithApple = async () => {
+    const provider = new OAuthProvider('apple.com');
+    // Add additional scopes if needed
+    provider.addScope('email');
+    provider.addScope('name');
+    
     const userCredential = await signInWithPopup(auth, provider);
     const user = userCredential.user;
 
@@ -160,7 +258,10 @@ export function AuthProvider({ children }) {
     login,
     logout,
     resetPassword,
-    signInWithGoogle
+    signInWithGoogle,
+    signInWithMicrosoft,
+    signInWithApple,
+    validateUsername
   };
 
   return (

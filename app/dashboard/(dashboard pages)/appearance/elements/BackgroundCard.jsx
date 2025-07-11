@@ -57,9 +57,15 @@ export default function BackgroundCard({ text, colorValue, backImg }) {
             return;
         }
     
-        const file = `${generateUniqueId()}.${(uploadedFile.name).substring((uploadedFile.name).lastIndexOf('.') + 1)}`;
-        const filePath = text === "Image" ? "backgroundImage": "backgroundVideo";
-        const storageRef01 = ref(appStorage, `${filePath}/${file}`);
+        const fileExtension = (uploadedFile.name).substring((uploadedFile.name).lastIndexOf('.') + 1);
+        const fileName = `${generateUniqueId()}.${fileExtension}`;
+        
+        // Updated path to match Firebase Storage rules: backgroundImage/{userId}/{imageId}
+        const filePath = text === "Image" 
+            ? `backgroundImage/${currentUser.uid}/${fileName}` 
+            : `backgroundVideo/${currentUser.uid}/${fileName}`;
+            
+        const storageRef01 = ref(appStorage, filePath);
         let fileUrl = '';
     
         await uploadBytes(storageRef01, uploadedFile).then(async (snapshot) => {

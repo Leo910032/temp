@@ -28,6 +28,18 @@ export default function ProfileImageManager() {
             return;
         }
 
+        // Validate file type
+        if (!selectedFile.type.startsWith('image/')) {
+            toast.error("Please select an image file");
+            return;
+        }
+
+        // Validate file size (max 5MB)
+        if (selectedFile.size > 5 * 1024 * 1024) {
+            toast.error("Image must be less than 5MB");
+            return;
+        }
+
         // Handle image preview
         const previewImageURL = URL.createObjectURL(selectedFile);
         setUploadedPhotoPreview(previewImageURL);
@@ -36,21 +48,27 @@ export default function ProfileImageManager() {
     };
 
     const handleUploadPhoto = async () => {
-        if (uploadedPhoto === "") {
-            return;
+        if (!uploadedPhoto || !currentUser) {
+            throw new Error("No photo selected or user not authenticated");
         }
 
-        const photo = `${generateUniqueId()}.${(uploadedPhoto.name).substring((uploadedPhoto.name).lastIndexOf('.') + 1)}`;
-        const storageRef01 = ref(appStorage, `profilePhoto/${photo}`);
-        let photoUrl = '';
+        try {
+            // Create unique filename
+            const fileExtension = uploadedPhoto.name.substring(uploadedPhoto.name.lastIndexOf('.') + 1);
+            const fileName = `${generateUniqueId()}.${fileExtension}`;
+            const storageRef = ref(appStorage, `profilePhoto/${fileName}`);
 
-        await uploadBytes(storageRef01, uploadedPhoto).then(async (snapshot) => {
-            await getDownloadURL(snapshot.ref).then((url) => {
-                photoUrl = url;
-            });
-        });
-
-        return photoUrl;
+            // Upload file
+            const snapshot = await uploadBytes(storageRef, uploadedPhoto);
+            
+            // Get download URL
+            const photoUrl = await getDownloadURL(snapshot.ref);
+            
+            return photoUrl;
+        } catch (error) {
+            console.error("Upload error:", error);
+            throw new Error("Failed to upload image: " + error.message);
+        }
     }
 
     const handleUpdateUserInfo = async () => {
@@ -60,14 +78,15 @@ export default function ProfileImageManager() {
 
         setIsLoading(true);
         try {
-            const getImageUrl = await handleUploadPhoto();
-            await updateProfilePhoto(getImageUrl, currentUser.uid); // Pass user ID
-            setIsLoading(false);
-
+            const imageUrl = await handleUploadPhoto();
+            await updateProfilePhoto(imageUrl, currentUser.uid); // Pass user ID
+            
             handleReset();
         } catch (error) {
+            console.error("Update profile error:", error);
+            throw error;
+        } finally {
             setIsLoading(false);
-            throw new Error(error);
         }
     }
 
@@ -80,10 +99,11 @@ export default function ProfileImageManager() {
         setIsRemoving(true);
         try {
             await updateProfilePhoto("", currentUser.uid); // Pass user ID
-            setIsRemoving(false);
         } catch (error) {
+            console.error("Remove profile error:", error);
+            toast.error("Failed to remove profile picture");
+        } finally {
             setIsRemoving(false);
-            throw new Error(error);
         }
     }
 
@@ -94,7 +114,7 @@ export default function ProfileImageManager() {
             {
                 loading: "Setting new profile picture",
                 success: "Profile Picture set",
-                error: "An error occurred!"
+                error: (err) => err.message || "An error occurred!"
             },
             {
                 style: {
@@ -114,9 +134,17 @@ export default function ProfileImageManager() {
         if (isLoading) {
             return;
         }
-        formRef.current.reset();
+        if (formRef.current) {
+            formRef.current.reset();
+        }
         setUploadedPhoto('');
         setPreviewing(false);
+        
+        // Clean up preview URL to prevent memory leaks
+        if (uploadedPhotoPreview) {
+            URL.revokeObjectURL(uploadedPhotoPreview);
+            setUploadedPhotoPreview('');
+        }
     }
 
     useEffect(() => {
@@ -134,11 +162,11 @@ export default function ProfileImageManager() {
                     if (profilePhoto && profilePhoto !== '') {
                         setProfilePicture(
                             <Image
-                                src={`${profilePhoto}`}
+                                src={profilePhoto}
                                 alt="profile"
                                 height={1000}
                                 width={1000}
-                                className="min-w-full h-full object-contain"
+                                className="min-w-full h-full object-cover"
                                 priority
                             />
                         );
@@ -162,6 +190,16 @@ export default function ProfileImageManager() {
                         </div>
                     );
                 }
+            }, (error) => {
+                console.error("Error fetching profile picture:", error);
+                // Set default on error
+                setProfilePicture(
+                    <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                        <span className="text-3xl font-semibold uppercase">
+                            {currentUser.email ? currentUser.email.split('')[0] : 'U'}
+                        </span>
+                    </div>
+                );
             });
 
             // Return cleanup function
@@ -172,11 +210,20 @@ export default function ProfileImageManager() {
         
         // Cleanup subscription on unmount or currentUser change
         return () => {
-            if (unsubscribe) {
+            if (unsubscribe && typeof unsubscribe === 'function') {
                 unsubscribe();
             }
         };
     }, [currentUser]); // Depend on currentUser
+
+    // Cleanup preview URL on unmount
+    useEffect(() => {
+        return () => {
+            if (uploadedPhotoPreview) {
+                URL.revokeObjectURL(uploadedPhotoPreview);
+            }
+        };
+    }, [uploadedPhotoPreview]);
 
     // Don't render if user is not authenticated
     if (!currentUser) {
@@ -185,12 +232,18 @@ export default function ProfileImageManager() {
 
     return (
         <div className="flex w-full p-6 items-center gap-4">
-            <div className="h-[6rem] w-[6rem] cursor-pointer rounded-full grid place-items-center border overflow-hidden" onClick={() => inputRef.current.click()}>
+            <div className="h-[6rem] w-[6rem] cursor-pointer rounded-full grid place-items-center border overflow-hidden" onClick={() => inputRef.current?.click()}>
                 {profilePicture}
             </div>
             <div className="flex-1 grid gap-2 relative">
-                <input type="file" className="absolute opacity-0 pointer-events-none" ref={inputRef} accept="image/*" onChange={handleFileChange} />
-                <div className={`flex items-center gap-3 justify-center p-3 rounded-3xl cursor-pointer active:scale-95 active:opacity-60 active:translate-y-1 hover:scale-[1.005] bg-btnPrimary text-white w-full`} onClick={() => inputRef.current.click()}>
+                <input 
+                    type="file" 
+                    className="absolute opacity-0 pointer-events-none" 
+                    ref={inputRef} 
+                    accept="image/*" 
+                    onChange={handleFileChange} 
+                />
+                <div className={`flex items-center gap-3 justify-center p-3 rounded-3xl cursor-pointer active:scale-95 active:opacity-60 active:translate-y-1 hover:scale-[1.005] bg-btnPrimary text-white w-full`} onClick={() => inputRef.current?.click()}>
                     Pick an image
                 </div>
                 <div className={`flex items-center gap-3 justify-center p-3 rounded-3xl mix-blend-multiply cursor-pointer active:scale-95 active:opacity-60 active:translate-y-1 hover:scale-[1.005] border w-full`} onClick={handleRemoveProfilePicture}>
@@ -204,8 +257,8 @@ export default function ProfileImageManager() {
                 <div className="absolute h-full w-full bg-black bg-opacity-[0.25] backdrop-blur-[1px] top-0 left-0 p-2" onClick={handleReset}></div>
                 <form ref={formRef} className="relative z-10 sm:max-w-[30rem] max-w-18 max-h-[80vh] overflow-hidden p-4">
                     <div className="w-full scale-[0.95] relative rounded-full overflow-hidden place-items-center grid aspect-square bg-white">
-                        <Image src={uploadedPhotoPreview} alt="profile pic" height={1000} width={1000} priority className="min-w-[10rem] w-full object-contain min-h-full" />
-                        {isLoading && <div className="absolute z-10 h-full w-full scale-110 grid place-items-center bg-black bg-opacity-[0.25] mix-blend-screen">
+                        <Image src={uploadedPhotoPreview} alt="profile pic" height={1000} width={1000} priority className="min-w-[10rem] w-full object-cover min-h-full" />
+                        {isLoading && <div className="absolute z-10 h-fullupdateProfilePhoto w-full scale-110 grid place-items-center bg-black bg-opacity-[0.25] mix-blend-screen">
                             <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={50} height={50} alt="loading" className="mix-blend-screen" />
                         </div>}
                     </div>

@@ -19,7 +19,11 @@ const DraggableList = () => {
 
     return (
         <DragDropContext onDragEnd={handleDragEnd}>
-            <Droppable droppableId="droppable">
+            <Droppable 
+                droppableId="droppable"
+                mode="standard"
+                type="DEFAULT"
+            >
                 {(provided) => (
                     <ul {...provided.droppableProps} ref={provided.innerRef} className='pl-4 grid gap-1'>
                         {socialsArray.map((item, index) => (

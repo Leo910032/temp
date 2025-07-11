@@ -23,10 +23,13 @@ export default function ChooseCause() {
                             <div className="relative grow">
                                 <select 
                                     className="placeholder-transparent peer px-0 text-sm leading-[48px] placeholder:leading-[48px] rounded-xl block py-5 w-full bg-chalk text-black transition duration-75 ease-out !outline-none bg-transparent pb-2"
+                                    value={chosenGroup !== null ? chosenGroup : ""}
                                     onChange={(e)=>setChosenGroup(e.target.value)}
                                 >
-                                    {chosenGroup !==null && choices.map((opt)=>(
-                                        <option value={opt.type} selected={opt.type=== Number(chosenGroup)} key={opt.type}>{opt.caption}</option>
+                                    {choices.map((opt)=>(
+                                        <option value={opt.type} key={opt.type}>
+                                            {opt.caption}
+                                        </option>
                                     ))}
                                 </select>
                                 <label
