@@ -1,12 +1,13 @@
-// LoginForm.jsx - Clean Optimized Production Version
+
+
+// app/login/componets/LoginForm.jsx - Updated with Authentication
 "use client"
 
 import React, { useEffect, useState, useMemo } from "react";
 import { useDebounce } from "@/LocalHooks/useDebounce";
-import { fireApp } from "@/important/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTranslation } from "@/lib/translation/useTranslation";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,7 +16,7 @@ import { FaCheck, FaEye, FaEyeSlash, FaX } from "react-icons/fa6";
 
 export default function LoginForm() {
     const router = useRouter();
-    const { login, signInWithGoogle } = useAuth();
+    const { login, signInWithGoogle, currentUser } = useAuth();
     const { t, isInitialized } = useTranslation();
 
     // Form State
@@ -25,7 +26,7 @@ export default function LoginForm() {
     const [canProceed, setCanProceed] = useState(false);
 
     // Debounced Values
-    const debounceUsername = useDebounce(username, 500);
+    const debounceUsername = useDebounce(username, 800);
     const debouncePassword = useDebounce(password, 500);
 
     // Loading States
@@ -40,14 +41,135 @@ export default function LoginForm() {
         password: 0,
     });
 
-    // OPTIMIZED USERNAME CHECK FUNCTION
+    // Rate limiting and authentication state
+    const [isRateLimited, setIsRateLimited] = useState(false);
+    const [rateLimitRetryAfter, setRateLimitRetryAfter] = useState(0);
+    const [lastValidationResult, setLastValidationResult] = useState(null);
+
+    // Get Firebase Auth token
+    const getAuthToken = async () => {
+        try {
+            const auth = getAuth();
+            const user = auth.currentUser;
+            
+            if (user) {
+                const token = await user.getIdToken(true); // Force refresh
+                console.log(`🟢 CLIENT: Got auth token for user ${user.uid}`);
+                return token;
+            } else {
+                console.log(`🟢 CLIENT: No authenticated user, proceeding without token`);
+                return null;
+            }
+        } catch (error) {
+            console.error(`🟢 CLIENT: Error getting auth token:`, error);
+            return null;
+        }
+    };
+
+    // ENHANCED SERVER-SIDE USERNAME VALIDATION WITH AUTHENTICATION
     const checkUsernameExists = async (username) => {
-        const q = query(
-            collection(fireApp, "AccountData"), 
-            where("username", "==", username.toLowerCase())
-        );
-        const snapshot = await getDocs(q);
-        return !snapshot.empty;
+        console.log(`🟢 CLIENT: Starting authenticated username validation for "${username}"`);
+        
+        try {
+            const startTime = Date.now();
+            
+            // Get authentication token
+            const authToken = await getAuthToken();
+            
+            // Prepare headers
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            
+            // Add auth header if available
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+                console.log(`🟢 CLIENT: Including authentication token`);
+            } else {
+                console.log(`🟢 CLIENT: No auth token - sending anonymous request`);
+            }
+
+            console.log(`🟢 CLIENT: Making POST request to /api/validate-username`);
+            
+            const response = await fetch('/api/validate-username', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ username }),
+            });
+
+            const endTime = Date.now();
+            const responseTime = endTime - startTime;
+            
+            console.log(`🟢 CLIENT: Response received in ${responseTime}ms`);
+            console.log(`🟢 CLIENT: Response status: ${response.status}`);
+            
+            const data = await response.json();
+            
+            console.log(`🟢 CLIENT: Response data:`, data);
+            
+            // Store result for debugging
+            setLastValidationResult(data);
+            
+            // Verify server processing
+            if (!data.serverProcessed) {
+                console.error(`🟢 CLIENT: ⚠️ WARNING - Response missing serverProcessed flag!`);
+            }
+            
+            if (data.requestId) {
+                console.log(`🟢 CLIENT: ✅ Server-side processing confirmed (Request ID: ${data.requestId})`);
+            }
+            
+            if (data.authenticated) {
+                console.log(`🟢 CLIENT: ✅ Request was authenticated on server`);
+                console.log(`🟢 CLIENT: User ID: ${data.user?.uid}`);
+                console.log(`🟢 CLIENT: Rate limit: ${data.rateLimit?.maxRequests} requests per minute`);
+            } else {
+                console.log(`🟢 CLIENT: ⚠️ Request was anonymous (lower rate limits)`);
+            }
+
+            // Handle different response statuses
+            if (response.status === 401) {
+                console.log(`🟢 CLIENT: Authentication required`);
+                throw new Error('Authentication required. Please sign in.');
+            }
+
+            if (response.status === 429) {
+                console.log(`🟢 CLIENT: Rate limited by server`);
+                console.log(`🟢 CLIENT: Max requests: ${data.maxRequests}`);
+                console.log(`🟢 CLIENT: Window: ${data.windowMs}ms`);
+                
+                setIsRateLimited(true);
+                setRateLimitRetryAfter(60); // Reset in 60 seconds
+                throw new Error(data.error || 'Too many requests');
+            }
+
+            if (!response.ok) {
+                console.log(`🟢 CLIENT: Server returned error: ${data.error}`);
+                throw new Error(data.error || 'Validation failed');
+            }
+
+            console.log(`🟢 CLIENT: Username "${username}" ${data.exists ? 'EXISTS' : 'AVAILABLE'}`);
+            console.log(`🟢 CLIENT: Processing time: ${data.processingTime}ms`);
+            console.log(`🟢 CLIENT: DB query time: ${data.dbQueryTime}ms`);
+            
+            return data.exists;
+
+        } catch (error) {
+            console.error(`🟢 CLIENT: Validation error:`, error);
+            
+            // Handle authentication errors gracefully
+            if (error.message.includes('Authentication required')) {
+                // Don't show auth errors during login flow
+                return true; // Assume username exists to avoid blocking
+            }
+            
+            // Handle rate limiting
+            if (error.message.includes('Too many requests')) {
+                return true; // Assume username exists to avoid blocking
+            }
+            
+            throw error;
+        }
     };
 
     // PRE-COMPUTE TRANSLATIONS FOR PERFORMANCE
@@ -68,7 +190,10 @@ export default function LoginForm() {
             invalidCredentials: t('login.invalid_credentials'),
             googleSignInFailed: t('login.google_signin_failed'),
             usernameNotRegistered: t('login.username_not_registered'),
-            loading: t('common.loading')
+            loading: t('common.loading'),
+            validationError: t('login.validation_error') || 'Unable to validate username',
+            rateLimited: t('login.rate_limited') || 'Too many attempts. Please wait a moment.',
+            authRequired: t('login.auth_required') || 'Authentication required for validation'
         };
     }, [t, isInitialized]);
 
@@ -127,37 +252,62 @@ export default function LoginForm() {
     // Check if any form is loading
     const isAnyLoading = isLoading || isGoogleLoading;
 
-    // OPTIMIZED USERNAME VALIDATION
+    // Rate limit countdown effect
+    useEffect(() => {
+        if (rateLimitRetryAfter > 0) {
+            const timer = setTimeout(() => {
+                setRateLimitRetryAfter(prev => prev - 1);
+            }, 1000);
+            
+            return () => clearTimeout(timer);
+        } else if (isRateLimited) {
+            setIsRateLimited(false);
+        }
+    }, [rateLimitRetryAfter, isRateLimited]);
+
+    // ENHANCED USERNAME VALIDATION WITH AUTHENTICATION
     useEffect(() => {
         const validateUsername = async () => {
-            if (debounceUsername !== "") {
-                setIsCheckingUsername(true);
-                
-                try {
-                    const exists = await checkUsernameExists(debounceUsername);
-                    
-                    if (!exists) {
-                        setHasError(prev => ({ ...prev, username: 1 }));
-                        setErrorMessage(translations.usernameNotRegistered);
-                    } else {
-                        setHasError(prev => ({ ...prev, username: 2 }));
-                        setErrorMessage("");
-                    }
-                } catch (error) {
-                    console.error("Username validation error:", error);
-                    setHasError(prev => ({ ...prev, username: 1 }));
-                    setErrorMessage("Error checking username");
-                } finally {
-                    setIsCheckingUsername(false);
-                }
-            } else {
+            // Skip validation if rate limited or username is empty
+            if (debounceUsername === "" || isRateLimited) {
                 setHasError(prev => ({ ...prev, username: 0 }));
                 setErrorMessage("");
+                return;
+            }
+
+            setIsCheckingUsername(true);
+            
+            try {
+                const exists = await checkUsernameExists(debounceUsername);
+                
+                if (!exists) {
+                    setHasError(prev => ({ ...prev, username: 1 }));
+                    setErrorMessage(translations.usernameNotRegistered);
+                } else {
+                    setHasError(prev => ({ ...prev, username: 2 }));
+                    setErrorMessage("");
+                }
+            } catch (error) {
+                console.error("Username validation error:", error);
+                
+                // Handle different types of errors
+                if (error.message.includes('Authentication required')) {
+                    setHasError(prev => ({ ...prev, username: 0 }));
+                    setErrorMessage(translations.authRequired);
+                } else if (isRateLimited) {
+                    setHasError(prev => ({ ...prev, username: 0 }));
+                    setErrorMessage(translations.rateLimited);
+                } else {
+                    setHasError(prev => ({ ...prev, username: 1 }));
+                    setErrorMessage(translations.validationError);
+                }
+            } finally {
+                setIsCheckingUsername(false);
             }
         };
         
         validateUsername();
-    }, [debounceUsername, translations.usernameNotRegistered]);
+    }, [debounceUsername, translations, isRateLimited]);
 
     // PASSWORD VALIDATION
     useEffect(() => {
@@ -170,7 +320,7 @@ export default function LoginForm() {
 
     // FORM VALIDATION
     useEffect(() => {
-        if (hasError.username <= 1 || hasError.password <= 1) {
+        if (hasError.username <= 1 || hasError.password <= 1 || isRateLimited) {
             setCanProceed(false);
         } else {
             setCanProceed(true);
@@ -179,7 +329,7 @@ export default function LoginForm() {
                 setErrorMessage("");
             }
         }
-    }, [hasError]);
+    }, [hasError, isRateLimited]);
 
     // LOADING STATE WHILE TRANSLATIONS LOAD
     if (!isInitialized) {
@@ -202,6 +352,38 @@ export default function LoginForm() {
     
     return (
         <div className="flex-1 sm:p-8 px-4 py-4 flex flex-col overflow-y-auto">
+            {/* DEBUG INFO - Remove in production */}
+            {process.env.NODE_ENV === 'development' && lastValidationResult && (
+                <div className="fixed bottom-4 right-4 z-50 bg-white border border-gray-300 rounded-lg p-3 shadow-lg text-xs max-w-xs">
+                    <div className="font-bold mb-2">🔍 Validation Debug:</div>
+                    <div className="space-y-1">
+                        <div className={`${lastValidationResult.authenticated ? 'text-green-600' : 'text-yellow-600'}`}>
+                            🔐 Auth: {lastValidationResult.authenticated ? 'YES' : 'NO'}
+                        </div>
+                        <div className="text-blue-600">
+                            📍 Server: {lastValidationResult.serverLocation}
+                        </div>
+                        <div className="text-purple-600">
+                            ⏱️ Time: {lastValidationResult.processingTime}ms
+                        </div>
+                        <div className="text-gray-600">
+                            📊 Limit: {lastValidationResult.rateLimit?.maxRequests}/min
+                        </div>
+                        {lastValidationResult.user && (
+                            <div className="text-green-600 text-xs">
+                                👤 {lastValidationResult.user.email}
+                            </div>
+                        )}
+                    </div>
+                    <button
+                        onClick={() => setLastValidationResult(null)}
+                        className="mt-2 text-xs text-red-500 hover:text-red-700"
+                    >
+                        ✕ Close
+                    </button>
+                </div>
+            )}
+
             {/* LOGO */}
             <Link href={'/'} className="sm:p-0 p-3 w-fit">
                 <Image 
@@ -218,6 +400,21 @@ export default function LoginForm() {
             <section className="mx-auto py-4 w-full sm:w-5/6 md:w-3/4 lg:w-2/3 xl:w-1/2 flex-1 flex flex-col justify-center">
                 <p className="text-2xl sm:text-5xl font-extrabold text-center">{translations.title}</p>
                 
+                {/* RATE LIMIT WARNING */}
+                {isRateLimited && (
+                    <div className="mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-md text-center">
+                        <p className="text-sm">
+                            {translations.rateLimited} 
+                            {rateLimitRetryAfter > 0 && (
+                                <span className="font-semibold"> ({rateLimitRetryAfter}s)</span>
+                            )}
+                        </p>
+                        <p className="text-xs mt-1">
+                            Sign in with Google for higher rate limits
+                        </p>
+                    </div>
+                )}
+                
                 <form className="py-6 sm:py-8 flex flex-col gap-4 w-full" onSubmit={handleSubmit}>
                     {/* USERNAME INPUT */}
                     <div className={`flex items-center py-1 sm:py-2 px-2 sm:px-6 rounded-md myInput ${
@@ -232,11 +429,15 @@ export default function LoginForm() {
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                             required
-                            disabled={isAnyLoading || isCheckingUsername}
+                            disabled={isAnyLoading}
                         />
                         {/* USERNAME VALIDATION ICONS */}
                         {isCheckingUsername ? (
                             <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full"></div>
+                        ) : isRateLimited ? (
+                            <div className="w-4 h-4 bg-yellow-500 rounded-full flex items-center justify-center">
+                                <span className="text-white text-xs">!</span>
+                            </div>
                         ) : hasError.username === 1 ? (
                             <FaX className="text-red-500 text-sm cursor-pointer" onClick={() => setUsername("")} />
                         ) : hasError.username === 2 ? (
@@ -348,7 +549,11 @@ export default function LoginForm() {
 
                     {/* ERROR MESSAGE */}
                     {!isAnyLoading && errorMessage && (
-                        <span className="text-sm text-red-500 text-center">{errorMessage}</span>
+                        <span className={`text-sm text-center ${
+                            isRateLimited ? 'text-yellow-600' : 'text-red-500'
+                        }`}>
+                            {errorMessage}
+                        </span>
                     )}
                 </form>
                 
