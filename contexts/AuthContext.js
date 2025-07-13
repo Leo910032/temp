@@ -1,16 +1,18 @@
-// contexts/AuthContext.js
+// ====================================================================
+// 3. UPDATED AUTH CONTEXT: contexts/AuthContext.js
+// ====================================================================
+
 "use client"
 import { createContext, useContext, useEffect, useState } from 'react';
 import { 
   onAuthStateChanged, 
   signOut, 
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
   OAuthProvider,
   sendPasswordResetEmail,
-  updateProfile
+  signInWithCustomToken
 } from 'firebase/auth';
 import { auth, fireApp } from '@/important/firebase';
 import { useRouter, usePathname } from 'next/navigation';
@@ -46,43 +48,6 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, [router, pathname]);
 
-  // Helper function to validate username format
-  const validateUsername = (username) => {
-    // Check for spaces
-    if (username.includes(' ')) {
-      throw new Error("Username cannot contain spaces. Please use underscores or hyphens instead.");
-    }
-    
-    // Check length
-    if (username.length < 3) {
-      throw new Error("Username must be at least 3 characters long.");
-    }
-    
-    // Check for invalid characters (only allow letters, numbers, underscores, hyphens)
-    if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
-      throw new Error("Username can only contain letters, numbers, underscores, and hyphens.");
-    }
-    
-    return true;
-  };
-
-  // Helper function to generate username from display name
-  const generateUsernameFromDisplayName = (displayName) => {
-    return displayName
-      .toLowerCase()
-      .replace(/\s+/g, '_') // Replace spaces with underscores
-      .replace(/[^a-zA-Z0-9_-]/g, '') // Remove invalid characters
-      .substring(0, 20); // Limit length
-  };
-
-  // Helper function to check if username exists
-  const checkUsernameExists = async (username) => {
-    const accountsRef = collection(fireApp, "AccountData");
-    const q = query(accountsRef, where("username", "==", username.toLowerCase()));
-    const querySnapshot = await getDocs(q);
-    return !querySnapshot.empty;
-  };
-
   // Helper function to get email by username
   const getEmailByUsername = async (username) => {
     const accountsRef = collection(fireApp, "AccountData");
@@ -96,25 +61,40 @@ export function AuthProvider({ children }) {
     return null;
   };
 
-  // Helper function to create user document
+  // Helper function to create user document for social logins
   const createUserDocument = async (user, additionalData = {}) => {
     const userRef = doc(fireApp, "AccountData", user.uid);
     
+    // Check if document already exists
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
+      return; // Document already exists, no need to create
+    }
+    
     let username = additionalData.username;
     
-    // If no username provided, generate from display name or email
+    // Generate username from display name or email if not provided
     if (!username) {
       if (user.displayName) {
-        username = generateUsernameFromDisplayName(user.displayName);
+        username = user.displayName
+          .toLowerCase()
+          .replace(/\s+/g, '_')
+          .replace(/[^a-zA-Z0-9_-]/g, '')
+          .substring(0, 20);
       } else {
         username = user.email.split('@')[0].replace(/[^a-zA-Z0-9_-]/g, '_');
       }
       
       // Make sure the generated username is unique
+      const accountsRef = collection(fireApp, "AccountData");
       let baseUsername = username;
       let counter = 1;
       
-      while (await checkUsernameExists(username)) {
+      while (true) {
+        const q = query(accountsRef, where("username", "==", username));
+        const querySnapshot = await getDocs(q);
+        if (querySnapshot.empty) break;
+        
         username = `${baseUsername}_${counter}`;
         counter++;
       }
@@ -129,36 +109,53 @@ export function AuthProvider({ children }) {
       profilePhoto: user.photoURL || "",
       selectedTheme: "Lake White",
       createdAt: new Date(),
+      emailVerified: user.emailVerified || false,
       ...additionalData
     }, { merge: true });
   };
 
-  // Create account with email/password
+  // ====================================================================
+  // SERVER-SIDE SIGNUP (NEW METHOD)
+  // ====================================================================
+  
   const signup = async (email, password, username) => {
-    // Validate username format
-    validateUsername(username);
-    
-    // Check if username already exists
-    const usernameExists = await checkUsernameExists(username);
-    if (usernameExists) {
-      throw new Error("Username already exists");
+    try {
+      // Call server-side signup API
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password: password,
+          username: username.trim()
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Signup failed');
+      }
+
+      // Sign in with the custom token
+      const userCredential = await signInWithCustomToken(auth, data.customToken);
+      
+      return {
+        user: userCredential.user,
+        serverData: data
+      };
+    } catch (error) {
+      console.error('Signup error:', error);
+      throw error;
     }
-
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-
-    // Update the user's display name
-    await updateProfile(user, {
-      displayName: username
-    });
-
-    // Create user document in Firestore
-    await createUserDocument(user, { username });
-
-    return user;
   };
 
-  // Sign in with email/password (using username or email)
+  // ====================================================================
+  // EXISTING LOGIN METHOD (ENHANCED)
+  // ====================================================================
+  
   const login = async (usernameOrEmail, password) => {
     let email = usernameOrEmail;
     
@@ -174,74 +171,59 @@ export function AuthProvider({ children }) {
     return userCredential.user;
   };
 
-  // Google sign in
+  // ====================================================================
+  // SOCIAL LOGIN METHODS (UNCHANGED)
+  // ====================================================================
+  
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
-    // Add additional scopes if needed
     provider.addScope('profile');
     provider.addScope('email');
     
     const userCredential = await signInWithPopup(auth, provider);
     const user = userCredential.user;
 
-    // Check if user document exists, create if not
-    const userRef = doc(fireApp, "AccountData", user.uid);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      await createUserDocument(user);
-    }
+    // Create user document if it doesn't exist
+    await createUserDocument(user);
 
     return user;
   };
 
-  // Microsoft sign in
   const signInWithMicrosoft = async () => {
     const provider = new OAuthProvider('microsoft.com');
-    // Add additional scopes if needed
     provider.addScope('https://graph.microsoft.com/User.Read');
     
     const userCredential = await signInWithPopup(auth, provider);
     const user = userCredential.user;
 
-    // Check if user document exists, create if not
-    const userRef = doc(fireApp, "AccountData", user.uid);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      await createUserDocument(user);
-    }
+    // Create user document if it doesn't exist
+    await createUserDocument(user);
 
     return user;
   };
 
-  // Apple sign in
   const signInWithApple = async () => {
     const provider = new OAuthProvider('apple.com');
-    // Add additional scopes if needed
     provider.addScope('email');
     provider.addScope('name');
     
     const userCredential = await signInWithPopup(auth, provider);
     const user = userCredential.user;
 
-    // Check if user document exists, create if not
-    const userRef = doc(fireApp, "AccountData", user.uid);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      await createUserDocument(user);
-    }
+    // Create user document if it doesn't exist
+    await createUserDocument(user);
 
     return user;
   };
 
-  // Password reset
+  // ====================================================================
+  // UTILITY METHODS
+  // ====================================================================
+  
   const resetPassword = async (email) => {
     await sendPasswordResetEmail(auth, email);
   };
 
-  // Sign out
   const logout = async () => {
     try {
       await signOut(auth);
@@ -254,14 +236,13 @@ export function AuthProvider({ children }) {
   const value = {
     currentUser,
     loading,
-    signup,
+    signup,        // Now uses server-side authentication
     login,
     logout,
     resetPassword,
     signInWithGoogle,
     signInWithMicrosoft,
-    signInWithApple,
-    validateUsername
+    signInWithApple
   };
 
   return (
@@ -270,3 +251,4 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
+

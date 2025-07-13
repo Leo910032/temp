@@ -1,24 +1,29 @@
-// SignUpForm.jsx - Complete Code with Translation Support
+
+// ====================================================================
+// 2. CLIENT-SIDE SIGNUP FORM: app/signup/components/SignupForm.jsx
+// ====================================================================
+
 "use client"
 import { useDebounce } from "@/LocalHooks/useDebounce";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTranslation } from "@/lib/translation/useTranslation"; // ADD THIS IMPORT
+import { useTranslation } from "@/lib/translation/useTranslation";
 import { validateEmail, validatePassword } from "@/lib/utilities";
+import { signInWithCustomToken } from "firebase/auth";
+import { auth } from "@/important/firebase";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation"; // ADD useSearchParams
-import { useEffect, useState, useMemo, Suspense } from "react"; // ADD useMemo and Suspense
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import toast from "react-hot-toast";
 import { FaCheck, FaEye, FaEyeSlash, FaX } from "react-icons/fa6";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { fireApp } from "@/important/firebase";
 
 function SignUpFormContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const returnTo = searchParams.get('returnTo') || '/dashboard'; // ADD RETURN URL SUPPORT
-    const { t, isInitialized } = useTranslation(); // ADD TRANSLATION HOOK
-    const { signup, signInWithGoogle, signInWithMicrosoft, signInWithApple, loading: authLoading } = useAuth();
+    const returnTo = searchParams.get('returnTo') || '/dashboard';
+    const { t, isInitialized } = useTranslation();
+    const { signInWithGoogle, signInWithMicrosoft, signInWithApple, loading: authLoading } = useAuth();
+    
     const [seePassword, setSeePassword] = useState(true);
     const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
@@ -36,11 +41,13 @@ function SignUpFormContent() {
         microsoft: false,
         apple: false
     });
+    const [isCheckingUsername, setIsCheckingUsername] = useState(false);
+    
     const debouncedUsername = useDebounce(username, 500);
     const debouncedPassword = useDebounce(password, 500);
     const debouncedEmail = useDebounce(email, 500);
 
-    // PRE-COMPUTE TRANSLATIONS FOR PERFORMANCE
+    // PRE-COMPUTE TRANSLATIONS
     const translations = useMemo(() => {
         if (!isInitialized) return {};
         return {
@@ -51,10 +58,10 @@ function SignUpFormContent() {
             createAccount: t('signup.create_account'),
             orContinueWith: t('signup.or_continue_with'),
             google: t('signup.google'),
-            microsoft: t('signup.microsoft'),
-            apple: t('signup.apple'),
             alreadyHaveAccount: t('signup.already_have_account'),
             login: t('signup.login'),
+            accountCreatedSuccess: t('signup.success.account_created'),
+            redirectMessage: t('signup.redirect_message'),
             // Error messages
             usernameTooShort: t('signup.errors.username_too_short'),
             invalidUsernameFormat: t('signup.errors.invalid_username_format'),
@@ -63,33 +70,54 @@ function SignUpFormContent() {
             emailAlreadyInUse: t('signup.errors.email_already_in_use'),
             weakPassword: t('signup.errors.weak_password'),
             somethingWentWrong: t('signup.errors.something_went_wrong'),
-            errorCheckingUsername: t('signup.errors.error_checking_username'),
-            // Success messages
-            accountCreatedSuccess: t('signup.success.account_created'),
-            signedInWithGoogle: t('signup.success.signed_in_with_google'),
-            signedInWithMicrosoft: t('signup.success.signed_in_with_microsoft'),
-            signedInWithApple: t('signup.success.signed_in_with_apple'),
-            // Loading messages
-            loading: t('common.loading'),
-            // Return URL message
-            redirectMessage: t('signup.redirect_message')
+            errorCheckingUsername: t('signup.errors.error_checking_username')
         };
     }, [t, isInitialized]);
 
-    // Helper function to check if username exists
+    // SERVER-SIDE USERNAME VALIDATION
     const checkUsernameExists = async (username) => {
         try {
-            const accountsRef = collection(fireApp, "AccountData");
-            const q = query(accountsRef, where("username", "==", username.toLowerCase()));
-            const querySnapshot = await getDocs(q);
-            return !querySnapshot.empty;
+            const response = await fetch('/api/validate-username', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username: username.toLowerCase() })
+            });
+            
+            const data = await response.json();
+            return data.exists;
         } catch (error) {
             console.error("Error checking username:", error);
             throw error;
         }
     };
 
-    const handleSubmit = async(e) => {
+    // SERVER-SIDE SIGNUP HANDLER
+    const handleServerSideSignup = async (userData) => {
+        try {
+            const response = await fetch('/api/auth/signup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(userData)
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Signup failed');
+            }
+            
+            return data;
+        } catch (error) {
+            console.error("Server-side signup error:", error);
+            throw error;
+        }
+    };
+
+    const handleSubmit = async (e) => {
         e.preventDefault();
 
         if (!canProceed || isLoading || authLoading) {
@@ -97,51 +125,61 @@ function SignUpFormContent() {
         }
         
         setIsLoading(true);
+        setErrorMessage("");
 
         try {
-            // Create user with Firebase Auth
-            await signup(email, password, username);
+            console.log('🔵 CLIENT: Starting server-side signup...');
             
-            // Success - user is automatically signed in
+            // Call server-side signup API
+            const signupResult = await handleServerSideSignup({
+                username: username.trim(),
+                email: email.trim(),
+                password: password
+            });
+            
+            console.log('🔵 CLIENT: Server signup successful, signing in with custom token...');
+            
+            // Sign in with the custom token returned from server
+            await signInWithCustomToken(auth, signupResult.customToken);
+            
+            console.log('🔵 CLIENT: Successfully signed in!');
+            
             toast.success(translations.accountCreatedSuccess);
             
             setTimeout(() => {
                 console.log('🔄 Redirecting to:', returnTo);
                 router.push(returnTo);
             }, 1000);
+            
         } catch (error) {
             setIsLoading(false);
             setCanProceed(false);
             
-            // Handle Firebase Auth specific errors
+            console.error('🔵 CLIENT: Signup error:', error);
+            
+            // Handle specific error codes
             let errorMsg = translations.somethingWentWrong;
             
-            if (error.code === 'auth/email-already-in-use') {
-                errorMsg = translations.emailAlreadyInUse;
-                setHasError((prevData) => ({ ...prevData, email: 1 }));
-            } else if (error.code === 'auth/weak-password') {
-                errorMsg = translations.weakPassword;
-                setHasError((prevData) => ({ ...prevData, password: 1 }));
-            } else if (error.code === 'auth/invalid-email') {
-                errorMsg = translations.invalidEmailFormat;
-                setHasError((prevData) => ({ ...prevData, email: 1 }));
-            } else if (error.message === "Username already exists") {
+            if (error.message.includes('Username is already taken')) {
                 errorMsg = translations.usernameTaken;
-                setHasError((prevData) => ({ ...prevData, username: 1 }));
+                setHasError(prev => ({ ...prev, username: 1 }));
+            } else if (error.message.includes('email already exists')) {
+                errorMsg = translations.emailAlreadyInUse;
+                setHasError(prev => ({ ...prev, email: 1 }));
+            } else if (error.message.includes('weak') || error.message.includes('password')) {
+                errorMsg = translations.weakPassword;
+                setHasError(prev => ({ ...prev, password: 1 }));
+            } else if (error.message.includes('email')) {
+                errorMsg = translations.invalidEmailFormat;
+                setHasError(prev => ({ ...prev, email: 1 }));
             }
             
             setErrorMessage(errorMsg);
-            console.error("Signup error:", error);
             toast.error(errorMsg);
         }
-    }
+    };
 
-    const createAccountHandler = async (e) => {
-        e.preventDefault();
-        await handleSubmit(e);
-    }
-
-    // Google Sign In Handler
+    // Google Sign In Handler (unchanged)
     const handleGoogleSignIn = async () => {
         if (loadingStates.google) return;
         
@@ -150,147 +188,90 @@ function SignUpFormContent() {
         
         try {
             await signInWithGoogle();
-            toast.success(translations.signedInWithGoogle);
+            toast.success("Signed in with Google successfully!");
             
             setTimeout(() => {
-                console.log('🔄 Redirecting to:', returnTo);
                 router.push(returnTo);
             }, 1000);
         } catch (error) {
             console.error("Google sign in error:", error);
-            setErrorMessage(error.message || "Google sign-in failed!");
+            setErrorMessage("Failed to sign in with Google");
             toast.error("Failed to sign in with Google");
         } finally {
             setLoadingStates(prev => ({ ...prev, google: false }));
         }
     };
 
-    // Microsoft Sign In Handler
-    const handleMicrosoftSignIn = async () => {
-        if (loadingStates.microsoft) return;
-        
-        setLoadingStates(prev => ({ ...prev, microsoft: true }));
-        setErrorMessage("");
-        
-        try {
-            await signInWithMicrosoft();
-            toast.success(translations.signedInWithMicrosoft);
-            
-            setTimeout(() => {
-                console.log('🔄 Redirecting to:', returnTo);
-                router.push(returnTo);
-            }, 1000);
-        } catch (error) {
-            console.error("Microsoft sign in error:", error);
-            setErrorMessage(error.message || "Microsoft sign-in failed!");
-            toast.error("Failed to sign in with Microsoft");
-        } finally {
-            setLoadingStates(prev => ({ ...prev, microsoft: false }));
-        }
-    };
-
-    // Apple Sign In Handler
-    const handleAppleSignIn = async () => {
-        if (loadingStates.apple) return;
-        
-        setLoadingStates(prev => ({ ...prev, apple: true }));
-        setErrorMessage("");
-        
-        try {
-            await signInWithApple();
-            toast.success(translations.signedInWithApple);
-            
-            setTimeout(() => {
-                console.log('🔄 Redirecting to:', returnTo);
-                router.push(returnTo);
-            }, 1000);
-        } catch (error) {
-            console.error("Apple sign in error:", error);
-            setErrorMessage(error.message || "Apple sign-in failed!");
-            toast.error("Failed to sign in with Apple");
-        } finally {
-            setLoadingStates(prev => ({ ...prev, apple: false }));
-        }
-    };
-
     const isAnyLoading = isLoading || authLoading || Object.values(loadingStates).some(Boolean);
 
-    // Username validation
+    // Username validation with server-side check
     useEffect(() => {
-        if (debouncedUsername !== "") {
-            if (String(debouncedUsername).length < 3) {
-                setHasError((prevData) => ({ ...prevData, username: 1 }));
-                setErrorMessage(translations.usernameTooShort);
-                return;
-            }
+        const validateUsername = async () => {
+            if (debouncedUsername !== "") {
+                if (debouncedUsername.length < 3) {
+                    setHasError(prev => ({ ...prev, username: 1 }));
+                    setErrorMessage(translations.usernameTooShort);
+                    return;
+                }
 
-            if (/[^a-zA-Z0-9\-_]/.test(debouncedUsername)) {
-                setHasError((prevData) => ({ ...prevData, username: 1 }));
-                setErrorMessage(translations.invalidUsernameFormat);
-                return;
-            }
+                if (/[^a-zA-Z0-9\-_]/.test(debouncedUsername)) {
+                    setHasError(prev => ({ ...prev, username: 1 }));
+                    setErrorMessage(translations.invalidUsernameFormat);
+                    return;
+                }
 
-            const checkUsername = async () => {
+                setIsCheckingUsername(true);
+                
                 try {
                     const exists = await checkUsernameExists(debouncedUsername);
                     if (exists) {
-                        setHasError((prevData) => ({ ...prevData, username: 1 }));
+                        setHasError(prev => ({ ...prev, username: 1 }));
                         setErrorMessage(translations.usernameTaken);
                     } else {
-                        setHasError((prevData) => ({ ...prevData, username: 2 }));
+                        setHasError(prev => ({ ...prev, username: 2 }));
                     }
                 } catch (error) {
-                    setHasError((prevData) => ({ ...prevData, username: 1 }));
+                    setHasError(prev => ({ ...prev, username: 1 }));
                     setErrorMessage(translations.errorCheckingUsername);
+                } finally {
+                    setIsCheckingUsername(false);
                 }
-            };
+            } else {
+                setHasError(prev => ({ ...prev, username: 0 }));
+            }
+        };
 
-            checkUsername();
-        } else {
-            setHasError((prevData) => ({ ...prevData, username: 0 }));
-        }
+        validateUsername();
     }, [debouncedUsername, translations]);
 
     // Email validation
     useEffect(() => {
         if (debouncedEmail !== "") {
             if (!validateEmail(debouncedEmail)) {
-                setHasError((prevData) => ({ ...prevData, email: 1 }));
+                setHasError(prev => ({ ...prev, email: 1 }));
                 setErrorMessage(translations.invalidEmailFormat);
                 return;
             }
-
-            setHasError((prevData) => ({ ...prevData, email: 2 }));
-            return;
+            setHasError(prev => ({ ...prev, email: 2 }));
         } else {
-            setHasError((prevData) => ({ ...prevData, email: 0 }));
+            setHasError(prev => ({ ...prev, email: 0 }));
         }
     }, [debouncedEmail, translations]);
 
     // Password validation
     useEffect(() => {
         if (debouncedPassword !== "") {
-            if (typeof (validatePassword(debouncedPassword)) !== "boolean") {
-                setHasError((prevData) => ({ ...prevData, password: 1 }));
-                setErrorMessage(validatePassword(debouncedPassword));
+            const passwordResult = validatePassword(debouncedPassword);
+            if (passwordResult !== true) {
+                setHasError(prev => ({ ...prev, password: 1 }));
+                setErrorMessage(passwordResult);
                 return;
             }
-
-            setHasError((prevData) => ({ ...prevData, password: 2 }));
-            return;
+            setHasError(prev => ({ ...prev, password: 2 }));
         } else {
-            setHasError((prevData) => ({ ...prevData, password: 0 }));
+            setHasError(prev => ({ ...prev, password: 0 }));
         }
     }, [debouncedPassword]);
-
-    // Get username from URL params
-    useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const usernameParam = urlParams.get('username');
-        if (usernameParam) {
-            setUsername(usernameParam);
-        }
-    }, []);
 
     // Check if form can proceed
     useEffect(() => {
@@ -298,12 +279,11 @@ function SignUpFormContent() {
             setCanProceed(false);
             return;
         }
-
         setCanProceed(true);
         setErrorMessage("");
     }, [hasError]);
 
-    // WAIT FOR TRANSLATIONS TO LOAD
+    // LOADING STATE
     if (!isInitialized) {
         return (
             <div className="flex-1 sm:p-8 px-4 py-4 flex flex-col overflow-y-auto">
@@ -338,7 +318,8 @@ function SignUpFormContent() {
                     </p>
                 )}
                 
-                <form className="py-6 sm:py-8 flex flex-col gap-4 w-full" onSubmit={createAccountHandler}>
+                <form className="py-6 sm:py-8 flex flex-col gap-4 w-full" onSubmit={handleSubmit}>
+                    {/* USERNAME INPUT */}
                     <div className={`flex items-center py-1 sm:py-2 px-2 sm:px-6 rounded-md myInput ${hasError.username === 1 ? "hasError" : hasError.username === 2 ? "good" : ""} bg-black bg-opacity-5 text-base sm:text-lg w-full`}>
                         <label className="opacity-40">mylinktree/</label>
                         <input
@@ -348,10 +329,18 @@ function SignUpFormContent() {
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                             required
-                            disabled={isAnyLoading}
+                            disabled={isAnyLoading || isCheckingUsername}
                         />
-                        {hasError.username === 1 ? <FaX className="text-red-500 text-sm cursor-pointer" onClick={() => setUsername("")} /> : hasError.username === 2 ? <FaCheck className="text-themeGreen cursor-pointer" /> : ""}
+                        {isCheckingUsername ? (
+                            <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full"></div>
+                        ) : hasError.username === 1 ? (
+                            <FaX className="text-red-500 text-sm cursor-pointer" onClick={() => setUsername("")} />
+                        ) : hasError.username === 2 ? (
+                            <FaCheck className="text-themeGreen cursor-pointer" />
+                        ) : ""}
                     </div>
+                    
+                    {/* EMAIL INPUT */}
                     <div className={`flex items-center py-1 sm:py-2 px-2 sm:px-6 rounded-md myInput ${hasError.email === 1 ? "hasError" : hasError.email === 2 ? "good" : ""} bg-black bg-opacity-5 text-base sm:text-lg w-full`}>
                         <input
                             type="email"
@@ -364,6 +353,8 @@ function SignUpFormContent() {
                         />
                         {hasError.email === 1 ? <FaX className="text-red-500 text-sm cursor-pointer" onClick={() => setEmail("")} /> : hasError.email === 2 ? <FaCheck className="text-themeGreen cursor-pointer" /> : ""}
                     </div>
+                    
+                    {/* PASSWORD INPUT */}
                     <div className={`flex items-center relative py-1 sm:py-2 px-2 sm:px-6 rounded-md  ${hasError.password === 1 ? "hasError" : hasError.password === 2 ? "good" : ""} bg-black bg-opacity-5 text-base sm:text-lg myInput`}>
                         <input
                             type={`${seePassword ? "password" : "text"}`}
@@ -378,13 +369,15 @@ function SignUpFormContent() {
                         {!seePassword && <FaEye className="opacity-60 cursor-pointer text-themeGreen" onClick={() => setSeePassword(!seePassword)} />}
                     </div>
                     
-                    <button type="submit" className={
+                    {/* SUBMIT BUTTON */}
+                    <button type="submit" disabled={!canProceed || isAnyLoading} className={
                         `rounded-md py-3 sm:py-4 grid place-items-center font-semibold ${canProceed && !isAnyLoading ? "cursor-pointer active:scale-95 active:opacity-40 hover:scale-[1.025] bg-themeGreen mix-blend-screen" : "cursor-default opacity-50 "}`
                     }>
                         {!isLoading && <span className="nopointer">{translations.createAccount}</span>}
                         {isLoading && <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={25} height={25} alt="loading" className=" mix-blend-screen" />}
                     </button>
 
+                    {/* SOCIAL SIGN IN */}
                     <div className="relative">
                         <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300" /></div>
                         <div className="relative flex justify-center text-sm"><span className="bg-white px-2 text-gray-500">{translations.orContinueWith}</span></div>
@@ -409,40 +402,6 @@ function SignUpFormContent() {
                                 </>
                             ) : ( <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={20} height={20} alt="loading" /> )}
                         </button>
-
-                        {/*
-                        <button
-                            type="button"
-                            onClick={handleMicrosoftSignIn}
-                            disabled={isAnyLoading}
-                            className={`flex items-center justify-center gap-2 py-2 px-4 rounded-md border border-gray-300 font-semibold ${!isAnyLoading ? "cursor-pointer hover:bg-gray-50 active:scale-95" : "cursor-default opacity-50"}`}
-                        >
-                            {!loadingStates.microsoft ? (
-                                <>
-                                    <svg className="w-5 h-5" viewBox="0 0 24 24">
-                                        <path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#00a4ef" d="M13 1h10v10H13z"/><path fill="#7fba00" d="M1 13h10v10H1z"/><path fill="#ffb900" d="M13 13h10v10H13z"/>
-                                    </svg>
-                                    <span className="hidden sm:inline">{translations.microsoft}</span>
-                                </>
-                            ) : ( <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={20} height={20} alt="loading" /> )}
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={handleAppleSignIn}
-                            disabled={isAnyLoading}
-                            className={`flex items-center justify-center gap-2 py-2 px-4 rounded-md border border-gray-300 font-semibold ${!isAnyLoading ? "cursor-pointer hover:bg-gray-50 active:scale-95" : "cursor-default opacity-50"}`}
-                        >
-                            {!loadingStates.apple ? (
-                                <>
-                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.51-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
-                                    </svg>
-                                    <span className="hidden sm:inline">{translations.apple}</span>
-                                </>
-                            ) : ( <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={20} height={20} alt="loading" /> )}
-                        </button>
-                        */}
                     </div>
 
                     {!isAnyLoading && errorMessage && (
