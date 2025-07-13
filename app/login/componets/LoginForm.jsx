@@ -353,36 +353,7 @@ export default function LoginForm() {
     return (
         <div className="flex-1 sm:p-8 px-4 py-4 flex flex-col overflow-y-auto">
             {/* DEBUG INFO - Remove in production */}
-            {process.env.NODE_ENV === 'development' && lastValidationResult && (
-                <div className="fixed bottom-4 right-4 z-50 bg-white border border-gray-300 rounded-lg p-3 shadow-lg text-xs max-w-xs">
-                    <div className="font-bold mb-2">🔍 Validation Debug:</div>
-                    <div className="space-y-1">
-                        <div className={`${lastValidationResult.authenticated ? 'text-green-600' : 'text-yellow-600'}`}>
-                            🔐 Auth: {lastValidationResult.authenticated ? 'YES' : 'NO'}
-                        </div>
-                        <div className="text-blue-600">
-                            📍 Server: {lastValidationResult.serverLocation}
-                        </div>
-                        <div className="text-purple-600">
-                            ⏱️ Time: {lastValidationResult.processingTime}ms
-                        </div>
-                        <div className="text-gray-600">
-                            📊 Limit: {lastValidationResult.rateLimit?.maxRequests}/min
-                        </div>
-                        {lastValidationResult.user && (
-                            <div className="text-green-600 text-xs">
-                                👤 {lastValidationResult.user.email}
-                            </div>
-                        )}
-                    </div>
-                    <button
-                        onClick={() => setLastValidationResult(null)}
-                        className="mt-2 text-xs text-red-500 hover:text-red-700"
-                    >
-                        ✕ Close
-                    </button>
-                </div>
-            )}
+           
 
             {/* LOGO */}
             <Link href={'/'} className="sm:p-0 p-3 w-fit">
