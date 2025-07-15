@@ -1,115 +1,69 @@
+// File: app/[userId]/House.jsx
+
 "use client"
+import React, { useEffect, useState, useMemo } from "react";
+import { fireApp } from "@/important/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
 import ProfilePic from "./components/ProfilePic";
 import UserInfo from "./components/UserInfo";
 import BgDiv from "./components/BgDiv";
 import MyLinks from "./components/MyLinks";
 import SupportBanner from "./components/SupportBanner";
-import PublicLanguageSwitcher from "./components/PublicLanguageSwitcher"; // ADD THIS IMPORT
-import React, { useEffect, useState } from "react";
-import { fireApp } from "@/important/firebase";
-import { collection, doc, getDoc, query, where, getDocs } from "firebase/firestore";
+import PublicLanguageSwitcher from "./components/PublicLanguageSwitcher";
 import SensitiveWarning from "./components/SensitiveWarning";
-import { notFound } from 'next/navigation';
 
-export const HouseContext = React.createContext();
+export const HouseContext = React.createContext(null);
 
-export default function House({ userId }) {
-    const [sensitiveWarning, setSensitiveWarning] = useState(null);
-    const [hasSensitiveContent, setHasSensitiveContent] = useState(false);
-    const [sensitiveType, setSensitiveType] = useState(false);
-    const [actualUserId, setActualUserId] = useState(null);
-    const [userNotFound, setUserNotFound] = useState(false);
-    const [loading, setLoading] = useState(true);
+export default function House({ initialUserData }) {
+    // Initialize state with server-fetched data
+    const [userData, setUserData] = useState(initialUserData);
+    const [showSensitiveWarning, setShowSensitiveWarning] = useState(initialUserData.sensitiveStatus);
 
+    // Set up a SINGLE real-time listener to keep the page live
     useEffect(() => {
-        async function fetchUserByUsername() {
-            try {
-                console.log("Looking for user:", userId);
-                
-                // First, try to find user by username in AccountData
-                const accountsRef = collection(fireApp, "AccountData");
-                const q = query(accountsRef, where("username", "==", userId));
-                const querySnapshot = await getDocs(q);
-                
-                let foundUserId = null;
-                
-                if (!querySnapshot.empty) {
-                    // Found user by username
-                    foundUserId = querySnapshot.docs[0].id;
-                    console.log("Found user by username:", foundUserId);
-                } else {
-                    // If not found by username, try direct Firebase Auth UID lookup
-                    const docRef = doc(fireApp, "AccountData", userId);
-                    const docSnap = await getDoc(docRef);
-                    
-                    if (docSnap.exists()) {
-                        foundUserId = userId;
-                        console.log("Found user by UID:", foundUserId);
-                    }
-                }
-                
-                if (foundUserId) {
-                    setActualUserId(foundUserId);
-                    
-                    // Fetch user data with the found user ID
-                    const docRef = doc(fireApp, "AccountData", foundUserId);
-                    const docSnap = await getDoc(docRef);
-                    
-                    if (docSnap.exists()) {
-                        const { sensitiveStatus, sensitivetype } = docSnap.data();
-                        setSensitiveWarning(sensitiveStatus ? sensitiveStatus : false);
-                        setHasSensitiveContent(sensitiveStatus ? sensitiveStatus : false);
-                        setSensitiveType(sensitivetype ? sensitivetype : 3);
-                    }
-                } else {
-                    // User not found
-                    console.error("User not found:", userId);
-                    setUserNotFound(true);
-                }
-                
-            } catch (error) {
-                console.error("Error fetching user:", error);
-                setUserNotFound(true);
-            } finally {
-                setLoading(false);
+        const docRef = doc(fireApp, "AccountData", userData.uid);
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                // Update state with the latest data from Firestore
+                const latestData = docSnap.data();
+                setUserData(prevData => ({ ...prevData, ...latestData }));
             }
-        }
-        
-        fetchUserByUsername();
-    }, [userId]);
+        });
 
-    // Show 404 if user not found
-    if (userNotFound) {
-        notFound();
-    }
+        // Cleanup listener on component unmount
+        return () => unsubscribe();
+    }, [userData.uid]);
 
-    // Show loading while fetching user
-    if (loading || !actualUserId) {
-        return (
-            <div className="w-screen h-screen flex items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
-            </div>
-        );
+    // Memoize context value to prevent unnecessary re-renders in consumers
+    const contextValue = useMemo(() => ({
+        userData,
+        setShowSensitiveWarning
+    }), [userData]);
+
+    if (!userData) {
+        return null; // Or a loading spinner, though this case is unlikely with server-fetched props
     }
 
     return (
-        <HouseContext.Provider value={{ setSensitiveWarning, sensitiveType, actualUserId }}>
-            {/* ADD LANGUAGE SWITCHER TO ALL VIEWS */}
+        <HouseContext.Provider value={contextValue}>
             <PublicLanguageSwitcher />
             
-            {!sensitiveWarning ? <>
-                <BgDiv userId={actualUserId} />
-
-                <div className="relative z-20 md:w-[50rem] w-full flex flex-col items-center h-full mx-auto">
-                    <div className="flex flex-col items-center flex-1 overflow-auto py-6">
-                        <ProfilePic userId={actualUserId} />
-                        <UserInfo userId={actualUserId} hasSensitiveContent={hasSensitiveContent} />
-                        <MyLinks userId={actualUserId} hasSensitiveContent={hasSensitiveContent} />
+            {showSensitiveWarning ? (
+                <SensitiveWarning />
+            ) : (
+                <>
+                    {/* All child components now get data from context or props */}
+                    <BgDiv />
+                    <div className="relative z-20 md:w-[50rem] w-full flex flex-col items-center h-full mx-auto">
+                        <div className="flex flex-col items-center flex-1 overflow-auto py-6">
+                            <ProfilePic />
+                            <UserInfo />
+                            <MyLinks />
+                        </div>
                     </div>
-                </div>
-                <SupportBanner userId={actualUserId} />
-            </>:
-                <SensitiveWarning />}
+                    <SupportBanner />
+                </>
+            )}
         </HouseContext.Provider>
-    )
+    );
 }

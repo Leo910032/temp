@@ -1,134 +1,171 @@
 "use client"
 
+import React, { useEffect, useState, useMemo, useCallback, createContext, useRef } from "react";
 import Image from "next/image";
-import AddBtn from "../general elements/addBtn";
-import DraggableList from "./Drag";
-import React, { useEffect, useState, useMemo } from "react"; // ADD useMemo
-import { generateRandomId } from "@/lib/utilities";
-import { updateLinks } from "@/lib/update data/updateLinks";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTranslation } from "@/lib/translation/useTranslation"; // ADD THIS IMPORT
+import { useTranslation } from "@/lib/translation/useTranslation";
+import { useDebounce } from "@/LocalHooks/useDebounce";
 import { fireApp } from "@/important/firebase";
 import { collection, doc, onSnapshot } from "firebase/firestore";
+import { generateRandomId } from "@/lib/utilities";
+import { toast } from "react-hot-toast";
+import AddBtn from "../general elements/addBtn";
+import DraggableList from "./Drag";
+import { isEqual } from 'lodash'; // <-- Import isEqual for deep comparison
 
-export const ManageLinksContent = React.createContext();
+// Create context to pass state down to child components
+export const ManageLinksContent = createContext(null);
 
 export default function ManageLinks() {
     const { currentUser } = useAuth();
-    const { t, isInitialized } = useTranslation(); // ADD TRANSLATION HOOK
-    const [data, setData] = useState([]);
-    const [hasLoaded, setHasLoaded] = useState(false);
+    const { t, isInitialized } = useTranslation();
+    
+    // --- State Management ---
+    const [data, setData] = useState([]); // Live data state for the UI
+    const [isSaving, setIsSaving] = useState(false); // For showing a "Saving..." indicator
+    
+    // --- Refs for Lifecycle Management (to prevent race conditions) ---
+    const isMounted = useRef(false);      // Becomes true after the first data fetch
+    const initialDataSnapshot = useRef(null); // Stores the first data fetched from Firestore
 
-    // PRE-COMPUTE TRANSLATIONS FOR PERFORMANCE
+    // Debounce state changes to group multiple quick edits into a single save operation
+    const debouncedData = useDebounce(data, 1500);
+
+    // Memoize translations for performance
     const translations = useMemo(() => {
         if (!isInitialized) return {};
         return {
             addHeader: t('dashboard.links.add_header'),
             emptyStateTitle: t('dashboard.links.empty_state.title'),
-            emptyStateSubtitle: t('dashboard.links.empty_state.subtitle')
+            emptyStateSubtitle: t('dashboard.links.empty_state.subtitle'),
+            linksSaved: t('dashboard.links.saved_success') || "Links saved!",
+            savingError: t('dashboard.links.saved_error') || "Could not save links."
         };
     }, [t, isInitialized]);
 
-    const addItem = () => {
-        const newItem = { id: `${generateRandomId()}`, title: "", isActive: true, type: 0 };
-        setData(prevData => {
-            return [newItem, ...prevData];
-        });
+    // --- User Actions ---
+    const addLinkItem = () => {
+        const newLink = { id: generateRandomId(), title: "", url: "", urlKind: "", isActive: true, type: 1 };
+        setData(prevData => [newLink, ...prevData]);
+    };
+    const addHeaderItem = () => {
+        const newHeader = { id: generateRandomId(), title: "", isActive: true, type: 0 };
+        setData(prevData => [newHeader, ...prevData]);
     };
     
-    // This useEffect handles SAVING data
-    useEffect(() => {
-        // Prevent running on initial load
-        if (!hasLoaded) {
-            return;
-        }
+    // --- API Call to Save Data ---
+    const saveLinksToServer = useCallback(async (linksToSave) => {
+        if (!currentUser) return;
         
-        // Only update if a user is logged in
-        if (currentUser) {
-            // Pass the user's UID to the updated updateLinks function
-            updateLinks(data, currentUser.uid);
-        }
-    }, [data, hasLoaded, currentUser]);
+        setIsSaving(true);
+        try {
+            const token = await currentUser.getIdToken();
+            const response = await fetch('/api/user/links', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ links: linksToSave })
+            });
 
-    // This useEffect handles FETCHING data
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || translations.savingError);
+            }
+
+            toast.success(translations.linksSaved);
+        } catch (error) {
+            console.error("Error saving links:", error);
+            toast.error(error.message);
+        } finally {
+            setIsSaving(false);
+        }
+    }, [currentUser, translations.linksSaved, translations.savingError]);
+
+    // --- Effect for FETCHING initial data ---
     useEffect(() => {
-        // Don't try to fetch data if there's no user
         if (!currentUser) {
-            setData([]); // Clear data on logout
+            setData([]);
+            isMounted.current = false;
+            initialDataSnapshot.current = null;
             return;
         }
 
-        const collectionRef = collection(fireApp, "AccountData");
-        // Use the Firebase Auth UID to get the correct document
-        const docRef = doc(collectionRef, currentUser.uid);
-
+        const docRef = doc(collection(fireApp, "AccountData"), currentUser.uid);
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const { links } = docSnap.data();
-                setData(links ? links : []);
-            } else {
-                // If the document doesn't exist, start with an empty array
-                setData([]);
+            const fetchedLinks = docSnap.exists() ? docSnap.data().links || [] : [];
+            setData(fetchedLinks);
+            
+            // Only set the initial data snapshot ONCE when the component first mounts.
+            if (isMounted.current === false) {
+                initialDataSnapshot.current = fetchedLinks;
+                isMounted.current = true;
             }
-            setHasLoaded(true);
         }, (error) => {
             console.error("Error fetching links:", error);
-            setData([]); // Set to empty on error
-            setHasLoaded(true);
+            isMounted.current = true; // Still mark as mounted even on error
         });
 
-        // Return the unsubscribe function for cleanup when the component unmounts or user changes
         return () => unsubscribe();
-        
     }, [currentUser]);
 
-    // WAIT FOR TRANSLATIONS TO LOAD
+    // --- Effect for SAVING data (Robust Logic) ---
+    useEffect(() => {
+        // Guard 1: Don't run this effect until the component has mounted and fetched initial data.
+        if (!isMounted.current) {
+            return;
+        }
+
+        // Guard 2: Compare the current debounced data with the initial data snapshot.
+        // If they are identical, it means no meaningful change has been made by the user yet.
+        if (isEqual(debouncedData, initialDataSnapshot.current)) {
+            return;
+        }
+
+        // If we pass the guards, it's a real user change that needs to be saved.
+        saveLinksToServer(debouncedData);
+        
+    }, [debouncedData, saveLinksToServer]);
+
+
+    // --- Render Logic ---
     if (!isInitialized) {
+        // ... Return your loading skeleton component/JSX ...
         return (
-            <div className="h-full flex-col gap-4 py-1 flex sm:px-2 px-1 transition-[min-height]">
-                {/* Loading skeleton */}
+            <div className="h-full flex-col gap-4 py-1 flex sm:px-2 px-1">
                 <div className="h-12 bg-gray-200 rounded-3xl animate-pulse"></div>
-                <div className="h-10 w-32 bg-gray-200 rounded-3xl animate-pulse mx-auto"></div>
-                <div className="p-6 flex-col gap-4 flex items-center justify-center opacity-30">
-                    <div className="h-16 w-16 bg-gray-200 rounded animate-pulse"></div>
-                    <div className="h-4 w-48 bg-gray-200 rounded animate-pulse"></div>
-                    <div className="h-4 w-32 bg-gray-200 rounded animate-pulse"></div>
-                </div>
+                <div className="h-10 w-32 bg-gray-200 rounded-3xl animate-pulse mx-auto mt-3"></div>
             </div>
         );
     }
 
     return (
         <ManageLinksContent.Provider value={{ setData, data }}>
-            <div className="h-full flex-col gap-4 py-1 flex sm:px-2 px-1 transition-[min-height]">
-                <AddBtn />
-
-                <div className={`flex items-center gap-3 justify-center rounded-3xl cursor-pointer active:scale-95 active:opacity-60 active:translate-y-1 hover:scale-[1.005] border hover:bg-black hover:bg-opacity-[0.05] w-fit text-sm p-3 mt-3`} onClick={addItem}>
-                    <>
-                        <Image src={"https://linktree.sirv.com/Images/icons/add.svg"} alt="links" height={15} width={15} />
-                        <span>{translations.addHeader}</span>
-                    </>
+            <div className="h-full flex-col gap-4 py-1 flex sm:px-2 px-1">
+                <AddBtn onAddItem={addLinkItem} />
+                <div className="flex items-center gap-3 justify-center rounded-3xl cursor-pointer active:scale-95 hover:scale-[1.005] border hover:bg-black/5 w-fit text-sm p-3 mt-3" onClick={addHeaderItem}>
+                    <Image src={"https://linktree.sirv.com/Images/icons/add.svg"} alt="add header" height={15} width={15} />
+                    <span>{translations.addHeader}</span>
                 </div>
-
-                {data.length === 0 && (
-                    <div className="p-6 flex-col gap-4 flex items-center justify-center opacity-30">
-                        <Image
-                            src={"https://linktree.sirv.com/Images/logo-icon.svg"}
-                            alt="logo"
-                            height={100}
-                            width={100}
-                            className="opacity-50 sm:w-24 w-16"
-                        />
-                        <span className="text-center sm:text-base text-sm max-w-[15rem] font-semibold">
-                            {translations.emptyStateTitle}
-                        </span>
-                        <span className="text-center sm:text-base text-sm max-w-[15rem] opacity-70">
-                            {translations.emptyStateSubtitle}
-                        </span>
-                    </div>
+                
+                {isSaving && (
+                    <div className="text-center text-sm text-gray-500 animate-pulse">Saving...</div>
                 )}
 
-                {data.length > 0 && <DraggableList array={data} />}
+                {!isMounted.current && (
+                    <div className="text-center text-gray-500 py-10">Loading...</div>
+                )}
+                
+                {isMounted.current && data.length > 0 && <DraggableList array={data} />}
+
+                {isMounted.current && data.length === 0 && (
+                    <div className="p-6 flex-col gap-4 flex items-center justify-center opacity-30">
+                        <Image src={"https://linktree.sirv.com/Images/logo-icon.svg"} alt="logo" height={100} width={100} className="opacity-50 sm:w-24 w-16" />
+                        <span className="text-center sm:text-base text-sm max-w-[15rem] font-semibold">{translations.emptyStateTitle}</span>
+                        <span className="text-center sm:text-base text-sm max-w-[15rem] opacity-70">{translations.emptyStateSubtitle}</span>
+                    </div>
+                )}
             </div>
         </ManageLinksContent.Provider>
     );

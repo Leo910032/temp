@@ -1,8 +1,10 @@
 "use client"
-import { fireApp } from "@/important/firebase";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import React, { useContext, useMemo } from "react";
 import Image from "next/image";
-import React, { useState, useEffect, useMemo } from "react";
+import { HouseContext } from "../House";
+import { useTranslation } from "@/lib/translation/useTranslation";
+
+// Import all theme components
 import LakeWhite from "../elements/themes/LakeWhite";
 import LakeBlack from "../elements/themes/LakeBlack";
 import PebbleBlue from "../elements/themes/PebbleBlue";
@@ -22,99 +24,85 @@ import Mario from "../elements/themes/Mario";
 import Blocks3D from "../elements/themes/3DBlocks";
 import CustomTheme from "../elements/themes/CustomTheme";
 import SnowFall from "../elements/themes/SnowFall";
-import { useTranslation } from "@/lib/translation/useTranslation";
 
-export const BgContext = React.createContext();
+// Create a new context specific to background properties
+export const BgContext = React.createContext(null);
 
-export default function BgDiv({ userId }) {
+export default function BgDiv() {
+    // 1. Consume the main HouseContext to get all user data
+    const { userData } = useContext(HouseContext);
     const { t, isInitialized } = useTranslation();
-    const [backgroundPicture, setBackgroundPicture] = useState(null);
-    const [bgType, setBgType] = useState("");
-    const [bgTheme, setBgTheme] = useState('Flat Colour');
-    const [gradientDirection, setGradientDirection]= useState("");
-    const [bgColor, setBgColor] = useState("#e8edf5");
-    const [bgImage, setBgImage] = useState('');
-    const [bgVideo, setBgVideo] = useState('');
-    const [themeTextColour, setThemeTextColour] = useState("");
 
-    const translations = useMemo(() => {
-        if (!isInitialized) return {};
-        // Re-using existing translation key
-        return { altProfile: t('dashboard.appearance.profile.alt_profile') };
-    }, [t, isInitialized]);
+    // 2. Destructure all needed properties from the centralized userData object
+    const {
+        profilePhoto,
+        displayName,
+        selectedTheme,
+        backgroundType,
+        gradientDirection,
+        backgroundColor,
+        backgroundImage,
+        backgroundVideo,
+        themeTextColour,
+    } = userData;
 
-    useEffect(() => {
-        if (!userId) return;
+    // 3. Memoize translations to prevent re-calculation on every render
+    const translations = useMemo(() => ({
+        altProfile: isInitialized ? t('dashboard.appearance.profile.alt_profile') : 'Profile'
+    }), [t, isInitialized]);
 
-        const docRef = doc(collection(fireApp, "AccountData"), userId);
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const { profilePhoto, displayName, themeFontColor, selectedTheme, backgroundType, gradientDirection, backgroundColor, backgroundImage, backgroundVideo } = docSnap.data();
-
-                setBgType(selectedTheme);
-                setBgTheme(backgroundType || "Flat Colour");
-                setGradientDirection(gradientDirection || 0);
-                setBgColor(backgroundColor || "#e8edf5");
-                setBgVideo(backgroundVideo);
-                setBgImage(backgroundImage);
-                setThemeTextColour(themeFontColor || "");
-
-                if (profilePhoto) {
-                    setBackgroundPicture(
-                        <Image
-                            src={profilePhoto}
-                            alt={translations.altProfile || 'Profile'}
-                            height={1000}
-                            width={1000}
-                            className="min-w-full h-full object-cover scale-[1.25]"
-                            priority
-                        />
-                    );
-                } else {
-                    setBackgroundPicture(
-                        <div className="h-full aspect-square w-full bg-gray-300 border grid place-items-center">
-                            <span className="text-3xl font-semibold uppercase">
-                                {displayName?.[0] || ''}
-                            </span>
-                        </div>
-                    );
-                }
-            }
-        }, (error) => {
-            console.error("Error fetching background data:", error);
-        });
-
-        return () => unsubscribe();
-    }, [userId, translations]);
-
-    if (!isInitialized) {
+    // 4. Memoize the background picture element to avoid re-creating it if its dependencies haven't changed
+    const backgroundPicture = useMemo(() => {
+        if (profilePhoto) {
+            // Using 'fill' and 'object-cover' is more robust for responsive backgrounds
+            return <Image src={profilePhoto} alt={translations.altProfile} fill className="object-cover scale-[1.25]" priority />;
+        }
+        // Fallback for users without a profile picture
         return (
-            // Basic skeleton while translations load
-            <div className="h-full w-full bg-gray-200 animate-pulse"></div>
-        )
+            <div className="h-full w-full bg-gray-300 grid place-items-center">
+                <span className="text-5xl font-semibold uppercase">{displayName?.[0] || 'U'}</span>
+            </div>
+        );
+    }, [profilePhoto, displayName, translations.altProfile]);
+
+    // 5. Memoize the context value for the BgContext Provider
+    // This ensures child components of BgContext only re-render when these specific values change
+    const contextValue = useMemo(() => ({
+        bgTheme: backgroundType,
+        bgColor: backgroundColor,
+        gradientDirection,
+        bgImage: backgroundImage,
+        bgVideo: backgroundVideo
+    }), [backgroundType, backgroundColor, gradientDirection, backgroundImage, backgroundVideo]);
+
+    // 6. Provide a loading skeleton while translations are initializing
+    if (!isInitialized) {
+        return <div className="fixed inset-0 h-full w-full bg-gray-200 animate-pulse -z-10"></div>;
     }
-    
+
+    // 7. Render the appropriate theme component based on `selectedTheme`
+    //    The BgContext.Provider makes custom background properties available to the CustomTheme component
     return (
-        <BgContext.Provider value={{bgTheme, bgColor, gradientDirection, bgImage, bgVideo}}>
-            {bgType === "Lake White" && <LakeWhite backgroundPicture={backgroundPicture} />}
-            {bgType === "Lake Black" && <LakeBlack backgroundPicture={backgroundPicture} />}
-            {bgType === "Pebble Blue" && <PebbleBlue />}
-            {bgType === "Pebble Yellow" && <PebbleYellow />}
-            {bgType === "Pebble Pink" && <PebblePink />}
-            {bgType === "Breeze Pink" && <BreezePink />}
-            {bgType === "Breeze Orange" && <BreezeOrange />}
-            {bgType === "Breeze Green" && <BreezeGreen />}
-            {bgType === "Confetti" && <Confetti />}
-            {bgType === "Cloud Red" && <CloudRed />}
-            {bgType === "Cloud Green" && <CloudGreen />}
-            {bgType === "Cloud Blue" && <CloudBlue />}
-            {bgType === "Rainbow" && <Rainbow />}
-            {bgType === "Starry Night" && <StarryNight />}
-            {bgType === "3D Blocks" && <Blocks3D />}
-            {bgType === "Matrix" && <MatrixBG textColor={themeTextColour} />}
-            {bgType === "New Mario" && <Mario />}
-            {bgType === "Custom" && <CustomTheme />}
-            {bgType === "Snow Fall" && <SnowFall />}
+        <BgContext.Provider value={contextValue}>
+            {selectedTheme === "Lake White" && <LakeWhite backgroundPicture={backgroundPicture} />}
+            {selectedTheme === "Lake Black" && <LakeBlack backgroundPicture={backgroundPicture} />}
+            {selectedTheme === "Pebble Blue" && <PebbleBlue />}
+            {selectedTheme === "Pebble Yellow" && <PebbleYellow />}
+            {selectedTheme === "Pebble Pink" && <PebblePink />}
+            {selectedTheme === "Breeze Pink" && <BreezePink />}
+            {selectedTheme === "Breeze Orange" && <BreezeOrange />}
+            {selectedTheme === "Breeze Green" && <BreezeGreen />}
+            {selectedTheme === "Confetti" && <Confetti />}
+            {selectedTheme === "Cloud Red" && <CloudRed />}
+            {selectedTheme === "Cloud Green" && <CloudGreen />}
+            {selectedTheme === "Cloud Blue" && <CloudBlue />}
+            {selectedTheme === "Rainbow" && <Rainbow />}
+            {selectedTheme === "Starry Night" && <StarryNight />}
+            {selectedTheme === "3D Blocks" && <Blocks3D />}
+            {selectedTheme === "Matrix" && <MatrixBG textColor={themeTextColour} />}
+            {selectedTheme === "New Mario" && <Mario />}
+            {selectedTheme === "Custom" && <CustomTheme />}
+            {selectedTheme === "Snow Fall" && <SnowFall />}
         </BgContext.Provider>
     );
 }

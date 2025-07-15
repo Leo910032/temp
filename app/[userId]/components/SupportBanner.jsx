@@ -1,108 +1,110 @@
 "use client"
 
-import { fireApp } from "@/important/firebase";
-import { useTranslatedSupportGroups } from "@/lib/SupportGroups"; // CHANGE THIS IMPORT
-import { fetchUserData } from "@/lib/fetch data/fetchUserData";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { useContext, useMemo, useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, useMemo } from "react";
-import { useTranslation } from "@/lib/translation/useTranslation"; // ADD TRANSLATION IMPORT
+import { HouseContext } from "../House";
+import { useTranslatedSupportGroups } from "@/lib/SupportGroups";
+import { useTranslation } from "@/lib/translation/useTranslation";
 
-export default function SupportBanner({ userId }) {
-    const { t, isInitialized } = useTranslation(); // ADD TRANSLATION HOOK
-    const translatedSupportGroups = useTranslatedSupportGroups(); // USE TRANSLATED GROUPS
-    const [supportGroup, setSupportGroup] = useState(0);
-    const [supportGroupStatus, setSupportGroupStatus] = useState(false);
+/**
+ * Renders the support banner at the bottom of the public profile page.
+ * This component is now "presentational" - it receives all its data from the
+ * parent `House` component via context, and does not perform its own data fetching.
+ */
+export default function SupportBanner() {
+    // 1. Get all necessary data and functions from context and hooks.
+    const { userData } = useContext(HouseContext);
+    const { t, isInitialized } = useTranslation();
+    const translatedSupportGroups = useTranslatedSupportGroups();
+    
+    // 2. Manage local UI state (the banner's expanded/collapsed view).
     const [expanded, setExpanded] = useState(false);
-    const [bgType, setBgType] = useState("");
-    const [themeTextColour, setThemeTextColour] = useState("");
 
-    // PRE-COMPUTE TRANSLATIONS FOR PERFORMANCE
-    const translations = useMemo(() => {
-        if (!isInitialized) return {};
-        return {
-            actNow: t('public.support_banner.act_now')
-        };
-    }, [t, isInitialized]);
+    // 3. Destructure data from the context with default fallbacks to prevent errors.
+    const {
+        supportBanner = 0,
+        supportBannerStatus = false,
+        selectedTheme = "",
+        themeTextColour = ""
+    } = userData || {}; // Use `|| {}` as a safeguard if context is ever null.
 
+    // 4. Pre-compute translations for performance.
+    const translations = useMemo(() => ({
+        actNow: isInitialized ? t('public.support_banner.act_now') : 'Act Now'
+    }), [t, isInitialized]);
+    
+    // 5. Use an effect for UI animations, like the initial expansion.
+    // This effect now depends on `supportBannerStatus` from the context.
     useEffect(() => {
-        async function fetchProfilePicture() {
-            const currentUser = await fetchUserData(userId);;
-            const collectionRef = collection(fireApp, "AccountData");
-            const docRef = doc(collectionRef, `${currentUser}`);
-
-            onSnapshot(docRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const { themeFontColor, selectedTheme, supportBanner, supportBannerStatus } = docSnap.data();
-                    setSupportGroup(supportBanner ? supportBanner : 0);
-                    setSupportGroupStatus(supportBannerStatus ? supportBannerStatus : false);
-                    setBgType(selectedTheme);
-                    setThemeTextColour(themeFontColor ? themeFontColor : "");
-
-                    setTimeout(() => {
-                        setExpanded(true);
-                    }, 1000);
-                }
-            });
+        if (supportBannerStatus) {
+            // Wait 1 second before expanding the banner for a smooth entrance.
+            const timer = setTimeout(() => {
+                setExpanded(true);
+            }, 1000);
+            
+            // Cleanup the timer if the component unmounts.
+            return () => clearTimeout(timer);
         }
-        fetchProfilePicture();
-    }, [userId]);
+    }, [supportBannerStatus]);
 
-    // GET CURRENT SUPPORT GROUP WITH TRANSLATIONS
-    const currentSupportGroup = translatedSupportGroups[supportGroup] || translatedSupportGroups[0];
+    // 6. Derive computed values based on the data.
+    const currentSupportGroup = translatedSupportGroups[supportBanner] || translatedSupportGroups[0];
+    const bannerStyle = {
+        color: selectedTheme === "Matrix" ? themeTextColour : "",
+        backgroundColor: selectedTheme === "Matrix" ? '#000905' : "",
+    };
 
-    // SHOW LOADING STATE WHILE TRANSLATIONS LOAD
-    if (!isInitialized) {
-        return (
-            <>
-                {supportGroupStatus && <div className="fixed bottom-0 w-screen left-0 z-[100]">
-                    <div className="py-4 px-6 bg-black absolute left-0 w-full bottom-0 text-white banner flex flex-col items-center border-t border-t-green-400/50 shadow-xl">
-                        <div className="h-6 w-32 bg-gray-600 rounded animate-pulse"></div>
-                        <div className="h-4 w-48 bg-gray-600 rounded animate-pulse mt-2"></div>
-                        <div className="h-10 w-40 bg-gray-600 rounded-xl animate-pulse mt-4"></div>
-                    </div>
-                </div>}
-            </>
-        );
+    // 7. Render Guard: If the banner is disabled or translations are not ready, render nothing.
+    // This prevents layout shifts and unnecessary rendering.
+    if (!supportBannerStatus || !isInitialized) {
+        return null;
     }
     
+    // 8. Render the component JSX with the processed data.
     return (
-        <>
-            {supportGroupStatus && <div className="fixed bottom-0 w-screen left-0 z-[100]">
-                <div className="py-4 px-6 bg-black absolute left-0 w-full bottom-0 text-white banner flex flex-col items-center border-t border-t-green-400/50 shadow-xl" style={{
-                    color: bgType === "Matrix" ? themeTextColour : "",
-                    backgroundColor: bgType === "Matrix" ? '#000905' : "",
-                }}>
-                    <div className={`filter invert ${expanded ? "" : "rotate-180"} top-6 absolute right-6 cursor-pointer`}>
-                        <Image
-                            src={"https://linktree.sirv.com/Images/icons/arr.svg"}
-                            alt="logo"
-                            height={15}
-                            onClick={() => setExpanded(!expanded)}
-                            width={15}
-                        />
-                    </div>
-                    {!expanded && <div onClick={() => setExpanded(true)} className="w-full text-center cursor-pointer">
-                        <span className="font-semibold max-w-[20rem]">{currentSupportGroup.title}</span>
-                    </div>}
-                    <div className={`flex flex-col text-center w-full gap-5 pt-2 items-center overflow-hidden ${expanded ? "openBanner" : "closeBanner"}`}
-                    >
-                        <div className="h-fit aspect-square rounded-full overflow-hidden">
-                            <Image src={"https://linktree.sirv.com/Images/icons/logo.gif"} alt="logo" height={60} width={60} />
-                        </div>
-                        <span className="font-semibold max-w-[20rem]">{currentSupportGroup.title}</span>
-                        <span className="text-sm max-w-[20rem]">{currentSupportGroup.message}</span>
-                        <Link
-                            href={currentSupportGroup.linkTo}
-                            target="_blank"
-                            className="sm:max-w-[30rem] w-full p-3 bg-white text-black font-semibold rounded-2xl uppercase hover:scale-105 active:scale-95 mt-2"
-                        >
-                            {translations.actNow}
-                        </Link>
-                    </div>
+        <div className="fixed bottom-0 w-screen left-0 z-[100]">
+            <div 
+                className="py-4 px-6 bg-black absolute left-0 w-full bottom-0 text-white banner flex flex-col items-center border-t border-t-green-400/50 shadow-xl" 
+                style={bannerStyle}
+            >
+                <div 
+                    className={`filter invert ${expanded ? "" : "rotate-180"} top-6 absolute right-6 cursor-pointer transition-transform duration-300`}
+                    onClick={() => setExpanded(!expanded)}
+                >
+                    <Image
+                        src={"https://linktree.sirv.com/Images/icons/arr.svg"}
+                        alt="Toggle banner"
+                        height={15}
+                        width={15}
+                    />
                 </div>
-            </div>}
-        </>
+
+                {/* Collapsed View */}
+                {!expanded && (
+                    <div onClick={() => setExpanded(true)} className="w-full text-center cursor-pointer">
+                        <span className="font-semibold max-w-[20rem]">{currentSupportGroup.title}</span>
+                    </div>
+                )}
+                
+                {/* Expanded View */}
+                <div className={`flex flex-col text-center w-full gap-5 pt-2 items-center overflow-hidden transition-all duration-500 ease-in-out ${
+                    expanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+                }`}>
+                    <div className="h-fit aspect-square rounded-full overflow-hidden">
+                        <Image src={"https://linktree.sirv.com/Images/icons/logo.gif"} alt="logo" height={60} width={60} />
+                    </div>
+                    <span className="font-semibold max-w-[20rem]">{currentSupportGroup.title}</span>
+                    <span className="text-sm max-w-[20rem]">{currentSupportGroup.message}</span>
+                    <Link
+                        href={currentSupportGroup.linkTo}
+                        target="_blank"
+                        className="sm:max-w-[30rem] w-full p-3 bg-white text-black font-semibold rounded-2xl uppercase hover:scale-105 active:scale-95 mt-2 transition-transform"
+                    >
+                        {translations.actNow}
+                    </Link>
+                </div>
+            </div>
+        </div>
     );
 }

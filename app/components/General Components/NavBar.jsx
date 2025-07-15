@@ -2,21 +2,22 @@
 import { fireApp } from "@/important/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTranslation } from "@/lib/translation/useTranslation";
+import { isAdmin } from "@/lib/adminAuth";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import React, { useEffect, useRef, useState, useMemo } from "react"; // ADD useMemo
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import ProfileCard from "../NavComponents/ProfileCard";
 import ShareCard from "../NavComponents/ShareCard";
-import LanguageSwitcher from "../LanguageSwitcher/LanguageSwitcher"; // ADD THIS IMPORT
+import LanguageSwitcher from "../LanguageSwitcher/LanguageSwitcher";
 
 export const NavContext = React.createContext();
 
 export default function NavBar() {
     const router = usePathname();
     const { currentUser } = useAuth();
-    const { t, isInitialized } = useTranslation(); // ADD THIS HOOK
+    const { t, isInitialized } = useTranslation();
     const [activePage, setActivePage] = useState();
     const [profilePicture, setProfilePicture] = useState(null);
     const [username, setUsername] = useState("");
@@ -30,13 +31,28 @@ export default function NavBar() {
     const translations = useMemo(() => {
         if (!isInitialized) return {};
         return {
-        links: t('dashboard.navigation.links'),
-        appearance: t('dashboard.navigation.appearance'),
-        analytics: t('dashboard.navigation.analytics'),
-        settings: t('dashboard.navigation.settings'),
-        contacts: t('dashboard.navigation.contacts')
+            links: t('dashboard.navigation.links'),
+            appearance: t('dashboard.navigation.appearance'),
+            analytics: t('dashboard.navigation.analytics'),
+            settings: t('dashboard.navigation.settings'),
+            contacts: t('dashboard.navigation.contacts'),
+            admin: t('dashboard.navigation.admin') || 'Admin Panel'
         };
     }, [t, isInitialized]);
+
+    // CHECK IF USER IS ADMIN - Use Firebase Auth email directly
+    const userIsAdmin = useMemo(() => {
+        // Use the email from Firebase Auth instead of Firestore
+        return currentUser ? isAdmin(currentUser.email) : false;
+    }, [currentUser]);
+
+    // Debug logging
+    useEffect(() => {
+        if (currentUser) {
+            console.log('🔍 Current user email (from Auth):', currentUser.email);
+            console.log('🔐 Is admin?', userIsAdmin);
+        }
+    }, [currentUser, userIsAdmin]);
 
     const handleShowProfileCard = () => {
         if (username === "") return;
@@ -83,7 +99,6 @@ export default function NavBar() {
         const docRef = doc(fireApp, "AccountData", currentUser.uid);
 
         // Use a single onSnapshot listener for all user data.
-        // This is real-time and handles the case where the document doesn't exist initially.
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
@@ -145,14 +160,16 @@ export default function NavBar() {
             case "/dashboard/analytics": setActivePage(2); break;
             case "/dashboard/contacts": setActivePage(3); break;
             case "/dashboard/settings": setActivePage(4); break;
+            case "/admin": 
+            case "/admin/users": 
+            case "/admin/analytics": setActivePage(5); break;
             default: setActivePage(0); break;
         }
     }, [router]);
     
     // While currentUser is loading, we can show a minimal or empty nav.
-    // The AuthProvider/ProtectedRoute should handle the main loading state.
     if (!currentUser) {
-        return null; // Or a loading skeleton for the NavBar
+        return null;
     }
 
     // WAIT FOR TRANSLATIONS TO LOAD
@@ -217,12 +234,31 @@ export default function NavBar() {
                             <Image src={"https://linktree.sirv.com/Images/icons/setting.svg"} alt="settings" height={16} width={16} />
                             {translations.settings}
                         </Link>
+                        
+                        {/* ADMIN PANEL BUTTON - Only show if user is admin */}
+                        {userIsAdmin && (
+                            <Link href={'/admin'} className={`flex items-center gap-2 px-2 py-2 active:scale-90 active:opacity-40 hover:bg-red-100 hover:bg-opacity-75 rounded-lg text-sm font-semibold border border-red-200 ${activePage === 5 ? "bg-red-100 text-red-700 opacity-100" : "text-red-600 hover:text-red-700"}`}>
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                                </svg>
+                                {translations.admin}
+                            </Link>
+                        )}
                     </div>
                 </div>
 
                 <div className="flex items-center gap-3">
-                    {/* ADD LANGUAGE SWITCHER */}
+                    {/* LANGUAGE SWITCHER */}
                     <LanguageSwitcher />
+                    
+                    {/* ADMIN PANEL BUTTON - Mobile/Small Screen Version */}
+                    {userIsAdmin && (
+                        <Link href={'/admin'} className="p-2 flex items-center relative gap-2 rounded-full border border-red-200 bg-red-50 cursor-pointer hover:bg-red-100 active:scale-90 overflow-hidden md:hidden">
+                            <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                            </svg>
+                        </Link>
+                    )}
                     
                     <div className="p-3 flex items-center relative gap-2 rounded-3xl border cursor-pointer hover:bg-gray-100 active:scale-90 overflow-hidden" ref={shareCardRef} onClick={handleShowShareCard}>
                         <Image src={"https://linktree.sirv.com/Images/icons/share.svg"} alt="links" height={15} width={15} />

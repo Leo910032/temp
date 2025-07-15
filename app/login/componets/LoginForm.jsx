@@ -393,15 +393,23 @@ export default function LoginForm() {
                         hasError.username === 2 ? "good" : ""
                     } bg-black bg-opacity-5 text-base sm:text-lg w-full`}>
                         <label className="opacity-40">mylinktree/</label>
-                        <input
-                            type="text"
-                            placeholder={translations.usernamePlaceholder}
-                            className="outline-none border-none bg-transparent ml-1 py-2 flex-1 text-sm sm:text-base"
-                            value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                            required
-                            disabled={isAnyLoading}
-                        />
+
+
+<input
+    type="text"
+    placeholder={translations.usernamePlaceholder}
+    className="outline-none border-none bg-transparent ml-1 py-2 flex-1 text-sm sm:text-base"
+    value={username}
+    onChange={(e) => {
+        // ADD THIS LOGIC: Reset error state on change
+        setHasError(prev => ({ ...prev, username: 0 }));
+        setErrorMessage("");
+        setUsername(e.target.value);
+    }}
+    required
+    disabled={isAnyLoading}
+/>
+
                         {/* USERNAME VALIDATION ICONS */}
                         {isCheckingUsername ? (
                             <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full"></div>

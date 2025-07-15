@@ -1,18 +1,24 @@
+// File: app/[userId]/components/SensitiveWarning.jsx
+
 "use client"
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useContext, useMemo } from "react";
 import { HouseContext } from "../House";
-import { useTranslation } from "@/lib/translation/useTranslation"; // ADD TRANSLATION IMPORT
+import { useTranslation } from "@/lib/translation/useTranslation";
 
 export default function SensitiveWarning() {
-    const { setSensitiveWarning, sensitiveType } = useContext(HouseContext);
+    // Consume the centralized context from the parent <House> component.
+    // This provides both the user data and the function to update the parent's state.
+    const { userData, setShowSensitiveWarning } = useContext(HouseContext);
+    const { sensitivetype } = userData;
+    
     const router = useRouter();
-    const { t, isInitialized } = useTranslation(); // ADD TRANSLATION HOOK
+    const { t, isInitialized } = useTranslation();
 
-    // PRE-COMPUTE TRANSLATIONS FOR PERFORMANCE
+    // Memoize translations to prevent re-computation on every render.
     const translations = useMemo(() => {
-        if (!isInitialized) return {};
+        if (!isInitialized) return {}; // Return empty object if translations aren't ready
         return {
             title: t('public.sensitive_warning.title'),
             description: t('public.sensitive_warning.description'),
@@ -28,19 +34,21 @@ export default function SensitiveWarning() {
         };
     }, [t, isInitialized]);
 
+    // Handler to navigate to the previous page.
     const handleBack = () => {
         router.back();
     }
 
+    // Handler to update the parent state, hiding this warning and showing the profile.
     const handleProceed = () => { 
-        setSensitiveWarning(false);
+        setShowSensitiveWarning(false);
     }
 
-    // GET BUTTON TEXTS BASED ON SENSITIVE TYPE
+    // Dynamically get the "Continue" button text based on the user's setting.
     const getContinueButtonText = () => {
-        if (!isInitialized) return "Continue"; // Fallback
+        if (!isInitialized) return "Continue"; // Fallback text
         
-        switch(sensitiveType) {
+        switch(sensitivetype) {
             case 1: return translations.over18;
             case 2: return translations.over21;
             case 3: return translations.over25;
@@ -48,10 +56,11 @@ export default function SensitiveWarning() {
         }
     };
 
+    // Dynamically get the "Go Back" button text based on the user's setting.
     const getGoBackButtonText = () => {
-        if (!isInitialized) return "Go Back"; // Fallback
+        if (!isInitialized) return "Go Back"; // Fallback text
         
-        switch(sensitiveType) {
+        switch(sensitivetype) {
             case 1: return translations.under18;
             case 2: return translations.under21;
             case 3: return translations.under25;
@@ -59,7 +68,7 @@ export default function SensitiveWarning() {
         }
     };
 
-    // SHOW LOADING STATE WHILE TRANSLATIONS LOAD
+    // Render a skeleton UI while translations are loading to prevent flicker.
     if (!isInitialized) {
         return (
             <div className="h-screen w-screen grid place-items-center p-5" style={{backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), linear-gradient(125deg, rgb(11, 175, 255), rgb(57, 224, 155) 50%, rgb(255, 194, 19))`}}>
@@ -76,25 +85,32 @@ export default function SensitiveWarning() {
         );
     }
 
+    // Render the final component once translations are ready.
     return (
         <div className="h-screen w-screen grid place-items-center p-5" style={{backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), linear-gradient(125deg, rgb(11, 175, 255), rgb(57, 224, 155) 50%, rgb(255, 194, 19))`}}>
-            <main className="flex flex-col gap-4 text-white max-w-[40rem] w-full items-center">
+            <main className="flex flex-col gap-4 text-white max-w-[40rem] w-full items-center text-center">
                 <Image
                     src={"https://linktree.sirv.com/Images/icons/close-eye.svg"}
-                    alt={"icon"}
+                    alt={"Sensitive Content Warning Icon"}
                     width={30}
                     height={30}
                 />
                 <h1 className="font-bold sm:text-2xl text-xl">{translations.title}</h1>
-                <p className="sm:text-xl text-center">{translations.description}</p>
+                <p className="sm:text-xl">{translations.description}</p>
 
                 <div className="my-4 w-full">
-                    <div className="p-3 font-semibold text-center hover:scale-105 active:scale-90 border border-white border-opacity-50 hover:border-opacity-100 w-full rounded-xl cursor-pointer" onClick={handleProceed}>
+                    <button
+                        className="p-3 font-semibold text-center hover:scale-105 active:scale-90 border border-white border-opacity-50 hover:border-opacity-100 w-full rounded-xl cursor-pointer transition-transform"
+                        onClick={handleProceed}
+                    >
                         {getContinueButtonText()}
-                    </div>
-                    <div className="p-3 font-semibold text-center hover:scale-105 active:scale-90 w-full rounded-xl cursor-pointer" onClick={handleBack}>
+                    </button>
+                    <button
+                        className="p-3 font-semibold text-center hover:scale-105 active:scale-90 w-full rounded-xl cursor-pointer transition-transform"
+                        onClick={handleBack}
+                    >
                         {getGoBackButtonText()}
-                    </div>
+                    </button>
                 </div>
             </main>
         </div>
