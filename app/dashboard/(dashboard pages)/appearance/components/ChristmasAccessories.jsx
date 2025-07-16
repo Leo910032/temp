@@ -1,13 +1,14 @@
+// app/dashboard/(dashboard pages)/appearance/components/ChristmasAccessories.jsx - SERVER-SIDE VERSION
 "use client"
 import { useAuth } from "@/contexts/AuthContext";
-import { updateChristmasAccessory } from "@/lib/update data/updateChristmasAccessory";
+import { updateChristmasAccessory } from "@/lib/services/appearanceService";
 import AssestCardVideo from "../elements/AssestCardVideo";
-import { useState, useMemo } from "react"; // ADD useMemo
-import toast from "react-hot-toast";
-import { useTranslation } from "@/lib/translation/useTranslation"; // ADD THIS IMPORT
+import { useState, useMemo } from "react";
+import { toast } from "react-hot-toast";
+import { useTranslation } from "@/lib/translation/useTranslation";
 
 export default function ChristmasAccessories() {
-    const { t, isInitialized } = useTranslation(); // ADD TRANSLATION HOOK
+    const { t, isInitialized } = useTranslation();
     const { currentUser } = useAuth();
     const [isUpdating, setIsUpdating] = useState(false);
 
@@ -15,9 +16,11 @@ export default function ChristmasAccessories() {
     const translations = useMemo(() => {
         if (!isInitialized) return {};
         return {
-            snowFall: t('dashboard.appearance.christmas.snow_fall'),
-            toastSuccess: t('dashboard.appearance.christmas.toast_success'),
-            toastError: t('dashboard.appearance.christmas.toast_error'),
+            snowFall: t('dashboard.appearance.christmas.snow_fall') || 'Snow Fall',
+            toastUpdating: t('dashboard.appearance.christmas.toast_updating') || 'Updating theme...',
+            toastSuccess: t('dashboard.appearance.christmas.toast_success') || 'Christmas theme updated!',
+            toastError: t('dashboard.appearance.christmas.toast_error') || 'Failed to update theme',
+            errorNotAuth: t('dashboard.appearance.christmas.error_not_auth') || 'Please log in to update themes',
         };
     }, [t, isInitialized]);
 
@@ -29,11 +32,17 @@ export default function ChristmasAccessories() {
     }), [translations]);
 
     const handleAccessoryClick = async (accessoryType) => {
-        if (!currentUser || isUpdating) return;
+        if (!currentUser) {
+            toast.error(translations.errorNotAuth);
+            return;
+        }
 
+        if (isUpdating) return; // Prevent multiple simultaneous updates
+
+        setIsUpdating(true);
+        
         try {
-            setIsUpdating(true);
-            await updateChristmasAccessory(accessoryType, currentUser.uid);
+            await updateChristmasAccessory(accessoryType);
 
             // Use the translated name for the toast message
             const displayName = accessoryDisplayNames[accessoryType] || accessoryType;
@@ -41,7 +50,7 @@ export default function ChristmasAccessories() {
 
         } catch (error) {
             console.error("Error updating Christmas accessory:", error);
-            toast.error(translations.toastError);
+            toast.error(error.message || translations.toastError);
         } finally {
             setIsUpdating(false);
         }
@@ -59,7 +68,17 @@ export default function ChristmasAccessories() {
     }
 
     return (
-        <div className="w-full bg-white rounded-3xl my-3 flex flex-col p-6">
+        <div className="w-full bg-white rounded-3xl my-3 flex flex-col p-6 relative">
+            {/* Loading overlay */}
+            {isUpdating && (
+                <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10 rounded-3xl">
+                    <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
+                        <span className="text-sm text-gray-600">{translations.toastUpdating}</span>
+                    </div>
+                </div>
+            )}
+            
             <div className="grid sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] sm:gap-4 gap-2 w-full">
                 <AssestCardVideo 
                     coverImg={"https://linktree.sirv.com/Images/Christmas/videoframe_1211.png"} 

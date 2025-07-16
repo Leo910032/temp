@@ -1,3 +1,4 @@
+//lib/utilities.jsx
 import Filter from "bad-words";
 
 export function validateEmail(email) {

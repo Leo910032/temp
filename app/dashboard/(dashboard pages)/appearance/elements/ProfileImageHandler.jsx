@@ -1,22 +1,21 @@
+// app/dashboard/(dashboard pages)/appearance/elements/ProfileImageHandler.jsx - SERVER-SIDE VERSION
 "use client"
 import { useAuth } from "@/contexts/AuthContext";
-import { generateUniqueId } from "@/lib/utilities";
+import { uploadProfileImage, removeProfileImage, getAppearanceData } from "@/lib/services/appearanceService";
 import Image from "next/image";
-import { useRef, useState, useEffect, useMemo } from "react"; // ADD useMemo
-import { uploadBytes, getDownloadURL, ref } from "firebase/storage";
-import { updateProfilePhoto } from "@/lib/update data/imageUpload";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { FaCheck, FaX } from "react-icons/fa6";
-import { appStorage, fireApp } from "@/important/firebase";
 import { toast } from "react-hot-toast";
-import { collection, doc, onSnapshot } from "firebase/firestore";
-import { useTranslation } from "@/lib/translation/useTranslation"; // ADD THIS IMPORT
+import { useTranslation } from "@/lib/translation/useTranslation";
 
 export default function ProfileImageManager() {
-    const { t, isInitialized } = useTranslation(); // ADD TRANSLATION HOOK
-    const { currentUser } = useAuth(); // Get current user from Firebase Auth
-    const [uploadedPhoto, setUploadedPhoto] = useState('');
+    const { t, isInitialized } = useTranslation();
+    const { currentUser } = useAuth();
+    const [uploadedPhoto, setUploadedPhoto] = useState(null);
     const [uploadedPhotoPreview, setUploadedPhotoPreview] = useState('');
     const [profilePicture, setProfilePicture] = useState(null);
+    const [currentProfilePhoto, setCurrentProfilePhoto] = useState('');
+    const [displayName, setDisplayName] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
     const [previewing, setPreviewing] = useState(false);
@@ -27,144 +26,154 @@ export default function ProfileImageManager() {
     const translations = useMemo(() => {
         if (!isInitialized) return {};
         return {
-            pickImage: t('dashboard.appearance.profile.pick_image'),
-            remove: t('dashboard.appearance.profile.remove_image'),
-            altProfile: t('dashboard.appearance.profile.alt_profile'),
-            altLoading: t('dashboard.appearance.profile.alt_loading'),
-            errorSelectImage: t('dashboard.appearance.profile.error_select_image'),
-            errorImageTooLarge: t('dashboard.appearance.profile.error_image_too_large'),
-            errorNotAuth: t('dashboard.appearance.profile.error_not_authenticated'),
-            errorUploadFailed: t('dashboard.appearance.profile.error_upload_failed'),
-            errorRemoveFailed: t('dashboard.appearance.profile.error_remove_failed'),
-            errorGeneric: t('dashboard.appearance.profile.error_generic'),
-            toastLoading: t('dashboard.appearance.profile.toast_loading'),
-            toastSuccess: t('dashboard.appearance.profile.toast_success'),
+            pickImage: t('dashboard.appearance.profile.pick_image') || 'Pick an image',
+            remove: t('dashboard.appearance.profile.remove_image') || 'Remove',
+            altProfile: t('dashboard.appearance.profile.alt_profile') || 'Profile',
+            altLoading: t('dashboard.appearance.profile.alt_loading') || 'Loading',
+            errorSelectImage: t('dashboard.appearance.profile.error_select_image') || 'Please select a valid image',
+            errorImageTooLarge: t('dashboard.appearance.profile.error_image_too_large') || 'Image too large (max 5MB)',
+            errorNotAuth: t('dashboard.appearance.profile.error_not_authenticated') || 'Not authenticated',
+            errorUploadFailed: t('dashboard.appearance.profile.error_upload_failed') || 'Upload failed',
+            errorRemoveFailed: t('dashboard.appearance.profile.error_remove_failed') || 'Remove failed',
+            toastUploading: t('dashboard.appearance.profile.toast_uploading') || 'Uploading image...',
+            toastSuccess: t('dashboard.appearance.profile.toast_success') || 'Profile image updated!',
+            toastRemoving: t('dashboard.appearance.profile.toast_removing') || 'Removing image...',
+            toastRemoveSuccess: t('dashboard.appearance.profile.toast_remove_success') || 'Profile image removed',
         };
     }, [t, isInitialized]);
 
+    // Fetch current profile data
+    const fetchProfileData = async () => {
+        if (!currentUser) return;
+        
+        try {
+            const data = await getAppearanceData();
+            setCurrentProfilePhoto(data.profilePhoto || '');
+            setDisplayName(data.displayName || '');
+            updateProfilePictureElement(data.profilePhoto, data.displayName);
+        } catch (error) {
+            console.error("Failed to fetch profile data:", error);
+        }
+    };
+
+    // Update profile picture element
+    const updateProfilePictureElement = (photoUrl, name) => {
+        if (photoUrl) {
+            setProfilePicture(
+                <Image
+                    src={photoUrl}
+                    alt={translations.altProfile}
+                    height={1000}
+                    width={1000}
+                    className="min-w-full h-full object-cover"
+                    priority
+                />
+            );
+        } else {
+            const initial = name?.[0] || currentUser?.email?.[0] || 'U';
+            setProfilePicture(
+                <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                    <span className="text-3xl font-semibold uppercase">{initial}</span>
+                </div>
+            );
+        }
+    };
+
+    // Handle file selection
     const handleFileChange = (e) => {
         const selectedFile = e.target.files[0];
-        if (!selectedFile) {
-            return;
-        }
+        if (!selectedFile) return;
+        
         if (!selectedFile.type.startsWith('image/')) {
             toast.error(translations.errorSelectImage);
             return;
         }
+        
         if (selectedFile.size > 5 * 1024 * 1024) {
             toast.error(translations.errorImageTooLarge);
             return;
         }
-        const previewImageURL = URL.createObjectURL(selectedFile);
-        setUploadedPhotoPreview(previewImageURL);
+        
+        const previewURL = URL.createObjectURL(selectedFile);
+        setUploadedPhotoPreview(previewURL);
         setUploadedPhoto(selectedFile);
         setPreviewing(true);
     };
 
+    // Handle image upload
     const handleUploadPhoto = async () => {
         if (!uploadedPhoto || !currentUser) {
             throw new Error(translations.errorNotAuth);
         }
-        try {
-            const fileExtension = uploadedPhoto.name.substring(uploadedPhoto.name.lastIndexOf('.') + 1);
-            const fileName = `${generateUniqueId()}.${fileExtension}`;
-            const storageRef = ref(appStorage, `profilePhoto/${currentUser.uid}/${fileName}`);
-            const snapshot = await uploadBytes(storageRef, uploadedPhoto);
-            return await getDownloadURL(snapshot.ref);
-        } catch (error) {
-            console.error("Upload error:", error);
-            throw new Error(`${translations.errorUploadFailed}: ${error.message}`);
-        }
-    }
 
-    const handleUpdateUserInfo = async () => {
-        if (!currentUser) {
-            throw new Error(translations.errorNotAuth);
-        }
         setIsLoading(true);
         try {
-            const imageUrl = await handleUploadPhoto();
-            await updateProfilePhoto(imageUrl, currentUser.uid);
+            const result = await uploadProfileImage(uploadedPhoto);
+            
+            // Update local state
+            setCurrentProfilePhoto(result.downloadURL);
+            updateProfilePictureElement(result.downloadURL, displayName);
+            
             handleReset();
+            toast.success(translations.toastSuccess);
+            
         } catch (error) {
-            console.error("Update profile error:", error);
-            throw error;
+            console.error("Upload error:", error);
+            toast.error(error.message || translations.errorUploadFailed);
         } finally {
             setIsLoading(false);
         }
-    }
+    };
 
+    // Handle image removal
     const handleRemoveProfilePicture = async () => {
-        if (!currentUser) {
-            toast.error(translations.errorNotAuth);
-            return;
-        }
+        if (!currentUser || isRemoving) return;
+        
         setIsRemoving(true);
         try {
-            await updateProfilePhoto("", currentUser.uid);
+            await removeProfileImage();
+            
+            // Update local state
+            setCurrentProfilePhoto('');
+            updateProfilePictureElement('', displayName);
+            
+            toast.success(translations.toastRemoveSuccess);
+            
         } catch (error) {
-            console.error("Remove profile error:", error);
-            toast.error(translations.errorRemoveFailed);
+            console.error("Remove error:", error);
+            toast.error(error.message || translations.errorRemoveFailed);
         } finally {
             setIsRemoving(false);
         }
-    }
+    };
 
-    const toasthandler = () => {
-        const promise = handleUpdateUserInfo();
-        toast.promise(promise, {
-            loading: translations.toastLoading,
-            success: translations.toastSuccess,
-            error: (err) => err.message || translations.errorGeneric
-        }, { /* toast styles */ });
-    }
-
+    // Reset preview state
     const handleReset = () => {
         if (isLoading) return;
+        
         if (formRef.current) formRef.current.reset();
-        setUploadedPhoto('');
+        setUploadedPhoto(null);
         setPreviewing(false);
+        
         if (uploadedPhotoPreview) {
             URL.revokeObjectURL(uploadedPhotoPreview);
             setUploadedPhotoPreview('');
         }
-    }
+    };
 
+    // Initial data fetch
     useEffect(() => {
-        if (!currentUser) return;
-        const docRef = doc(collection(fireApp, "AccountData"), currentUser.uid);
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            let pictureElement;
-            if (docSnap.exists()) {
-                const { profilePhoto, displayName } = docSnap.data();
-                if (profilePhoto) {
-                    pictureElement = <Image src={profilePhoto} alt={translations.altProfile || 'Profile'} height={1000} width={1000} className="min-w-full h-full object-cover" priority />;
-                } else {
-                    const initial = displayName?.[0] || currentUser.email?.[0] || 'U';
-                    pictureElement = (
-                        <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
-                            <span className="text-3xl font-semibold uppercase">{initial}</span>
-                        </div>
-                    );
-                }
-            } else {
-                const initial = currentUser.email?.[0] || 'U';
-                pictureElement = (
-                    <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
-                        <span className="text-3xl font-semibold uppercase">{initial}</span>
-                    </div>
-                );
-            }
-            setProfilePicture(pictureElement);
-        }, (error) => {
-            console.error("Error fetching profile picture:", error);
-        });
-        return () => unsubscribe();
-    }, [currentUser, translations.altProfile]);
+        if (currentUser) {
+            fetchProfileData();
+        }
+    }, [currentUser]);
 
+    // Cleanup preview URL
     useEffect(() => {
         return () => {
-            if (uploadedPhotoPreview) URL.revokeObjectURL(uploadedPhotoPreview);
+            if (uploadedPhotoPreview) {
+                URL.revokeObjectURL(uploadedPhotoPreview);
+            }
         };
     }, [uploadedPhotoPreview]);
 
@@ -183,31 +192,103 @@ export default function ProfileImageManager() {
 
     return (
         <div className="flex w-full p-6 items-center gap-4">
-            <div className="h-[6rem] w-[6rem] cursor-pointer rounded-full grid place-items-center border overflow-hidden" onClick={() => inputRef.current?.click()}>
+            <div 
+                className="h-[6rem] w-[6rem] cursor-pointer rounded-full grid place-items-center border overflow-hidden hover:opacity-80 transition-opacity" 
+                onClick={() => inputRef.current?.click()}
+            >
                 {profilePicture}
             </div>
+            
             <div className="flex-1 grid gap-2 relative">
-                <input type="file" className="absolute opacity-0 pointer-events-none" ref={inputRef} accept="image/*" onChange={handleFileChange} />
-                <div className={`flex items-center gap-3 justify-center p-3 rounded-3xl cursor-pointer active:scale-95 active:opacity-60 active:translate-y-1 hover:scale-[1.005] bg-btnPrimary text-white w-full`} onClick={() => inputRef.current?.click()}>
-                    {translations.pickImage}
-                </div>
-                <div className={`flex items-center gap-3 justify-center p-3 rounded-3xl mix-blend-multiply cursor-pointer active:scale-95 active:opacity-60 active:translate-y-1 hover:scale-[1.005] border w-full`} onClick={handleRemoveProfilePicture}>
-                    {!isRemoving ? translations.remove : <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={25} height={25} alt={translations.altLoading} className="filter invert" />}
-                </div>
+                <input 
+                    type="file" 
+                    className="absolute opacity-0 pointer-events-none" 
+                    ref={inputRef} 
+                    accept="image/*" 
+                    onChange={handleFileChange} 
+                />
+                
+                <button 
+                    className={`flex items-center gap-3 justify-center p-3 rounded-3xl transition-all duration-200 ${
+                        isLoading || isRemoving
+                            ? 'bg-gray-400 cursor-not-allowed'
+                            : 'bg-btnPrimary hover:bg-btnPrimaryAlt hover:scale-[1.005] active:scale-95 active:opacity-60 cursor-pointer'
+                    } text-white w-full`} 
+                    onClick={() => inputRef.current?.click()}
+                    disabled={isLoading || isRemoving}
+                >
+                    {isLoading ? (
+                        <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            {translations.toastUploading}
+                        </>
+                    ) : (
+                        translations.pickImage
+                    )}
+                </button>
+                
+                <button 
+                    className={`flex items-center gap-3 justify-center p-3 rounded-3xl border transition-all duration-200 ${
+                        isLoading || isRemoving
+                            ? 'border-gray-300 text-gray-400 cursor-not-allowed'
+                            : 'border-gray-300 hover:border-gray-400 hover:scale-[1.005] active:scale-95 active:opacity-60 cursor-pointer'
+                    } w-full`}
+                    onClick={handleRemoveProfilePicture}
+                    disabled={isLoading || isRemoving}
+                >
+                    {isRemoving ? (
+                        <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                            {translations.toastRemoving}
+                        </>
+                    ) : (
+                        translations.remove
+                    )}
+                </button>
             </div>
-            {previewing && <div className="fixed top-0 left-0 h-screen w-screen grid place-items-center z-[999999999999999]">
-                <div className="absolute h-full w-full bg-black bg-opacity-[0.25] backdrop-blur-[1px] top-0 left-0 p-2" onClick={handleReset}></div>
-                <form ref={formRef} className="relative z-10 sm:max-w-[30rem] max-w-18 max-h-[80vh] overflow-hidden p-4">
-                    <div className="w-full scale-[0.95] relative rounded-full overflow-hidden place-items-center grid aspect-square bg-white">
-                        <Image src={uploadedPhotoPreview} alt={translations.altProfile} height={1000} width={1000} priority className="min-w-[10rem] w-full object-cover min-h-full" />
-                        {isLoading && <div className="absolute z-10 h-full w-full scale-110 grid place-items-center bg-black bg-opacity-[0.25] mix-blend-screen">
-                            <Image src={"https://linktree.sirv.com/Images/gif/loading.gif"} width={50} height={50} alt={translations.altLoading} className="mix-blend-screen" />
-                        </div>}
-                    </div>
-                    {!isLoading && <div className="absolute top-2 right-2 rounded-full p-2 hover:bg-red-500 active:scale-90 bg-black text-white text-sm cursor-pointer" onClick={handleReset}><FaX /></div>}
-                    {!isLoading && <div className="p-3 text-lg text-white bg-btnPrimary w-fit rounded-full mx-auto active:bg-btnPrimaryAlt active:scale-90 hover:scale-110 cursor-pointer my-3" onClick={toasthandler}><FaCheck /></div>}
-                </form>
-            </div>}
+
+            {/* Preview Modal */}
+            {previewing && (
+                <div className="fixed top-0 left-0 h-screen w-screen grid place-items-center z-[999999999999999]">
+                    <div 
+                        className="absolute h-full w-full bg-black bg-opacity-[0.25] backdrop-blur-[1px] top-0 left-0 p-2" 
+                        onClick={handleReset}
+                    ></div>
+                    <form ref={formRef} className="relative z-10 sm:max-w-[30rem] max-w-18 max-h-[80vh] overflow-hidden p-4">
+                        <div className="w-full scale-[0.95] relative rounded-full overflow-hidden place-items-center grid aspect-square bg-white">
+                            <Image 
+                                src={uploadedPhotoPreview} 
+                                alt={translations.altProfile} 
+                                height={1000} 
+                                width={1000} 
+                                priority 
+                                className="min-w-[10rem] w-full object-cover min-h-full" 
+                            />
+                            {isLoading && (
+                                <div className="absolute z-10 h-full w-full scale-110 grid place-items-center bg-black bg-opacity-[0.25] mix-blend-screen">
+                                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+                                </div>
+                            )}
+                        </div>
+                        {!isLoading && (
+                            <>
+                                <div 
+                                    className="absolute top-2 right-2 rounded-full p-2 hover:bg-red-500 active:scale-90 bg-black text-white text-sm cursor-pointer" 
+                                    onClick={handleReset}
+                                >
+                                    <FaX />
+                                </div>
+                                <div 
+                                    className="p-3 text-lg text-white bg-btnPrimary w-fit rounded-full mx-auto active:bg-btnPrimaryAlt active:scale-90 hover:scale-110 cursor-pointer my-3" 
+                                    onClick={handleUploadPhoto}
+                                >
+                                    <FaCheck />
+                                </div>
+                            </>
+                        )}
+                    </form>
+                </div>
+            )}
         </div>
     );
 }

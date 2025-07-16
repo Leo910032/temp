@@ -1,27 +1,26 @@
+// app/dashboard/(dashboard pages)/appearance/elements/Button.jsx - SERVER-SIDE VERSION
 "use client"
-import { updateThemeButton } from "@/lib/update data/updateTheme";
-import { useAuth } from "@/contexts/AuthContext";
 
-export default function Button({modifierClass, modifierStyles, type}) {
-    const { currentUser } = useAuth();
-    
-    const handleUpdateTheme = async() => {
-        if (!currentUser) {
-            console.error("User not authenticated");
-            return;
-        }
-        
-        try {
-            await updateThemeButton(type ? type : 0, currentUser.uid);
-        } catch (error) {
-            console.error("Error updating theme button:", error);
-        }
-    }
+export default function Button({ 
+    modifierClass, 
+    modifierStyles, 
+    type, 
+    onUpdate, 
+    disabled = false 
+}) {
+    const handleClick = () => {
+        if (disabled || !onUpdate) return;
+        onUpdate(type || 0);
+    };
     
     return (
         <div 
-            onClick={handleUpdateTheme}
-            className={`${modifierClass} cursor-pointer hover:scale-105 active:scale-95 min-w-[30%] h-10 flex-1`}
+            onClick={handleClick}
+            className={`${modifierClass} ${
+                disabled 
+                    ? 'opacity-50 cursor-not-allowed' 
+                    : 'cursor-pointer hover:scale-105 active:scale-95'
+            } min-w-[30%] h-10 flex-1 transition-all duration-200`}
             style={modifierStyles}
         ></div>
     );

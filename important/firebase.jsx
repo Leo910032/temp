@@ -1,14 +1,12 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
+// File: important/firebase.jsx
+
+// Import the functions you need from the CLIENT SDKs
+import { initializeApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore"
 import { getStorage } from "firebase/storage";
 import { getAuth } from "firebase/auth";
 
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// Your web app's Firebase configuration (using NEXT_PUBLIC_ prefixes)
 const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_apiKey,
     authDomain: process.env.NEXT_PUBLIC_authDomain,
@@ -19,9 +17,15 @@ const firebaseConfig = {
     measurementId: process.env.NEXT_PUBLIC_measurementId,
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase Client App
+let app;
+if (!getApps().length) {
+    app = initializeApp(firebaseConfig);
+} else {
+    app = getApps()[0];
+}
+
+// Initialize Client Services
 export const fireApp = getFirestore(app);
 export const appStorage = getStorage(app);
 export const auth = getAuth(app);
-
