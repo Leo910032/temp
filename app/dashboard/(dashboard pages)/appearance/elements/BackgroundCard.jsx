@@ -1,16 +1,16 @@
-// app/dashboard/(dashboard pages)/appearance/elements/BackgroundCard.jsx - SERVER-SIDE VERSION
+// app/dashboard/(dashboard pages)/appearance/elements/BackgroundCard.jsx - FIXED VERSION
 "use client"
 import { useAuth } from "@/contexts/AuthContext";
 import { 
     updateThemeBackground, 
     uploadBackgroundImage, 
-    uploadBackgroundVideo,
-    getAppearanceData 
+    uploadBackgroundVideo
 } from "@/lib/services/appearanceService";
 import Image from "next/image";
 import { useContext, useEffect, useRef, useState, useMemo } from "react";
 import { FaCheck, FaX } from "react-icons/fa6";
 import { backgroundContext } from "../components/Backgrounds";
+import { AppearanceContext } from "../page"; // ✅ ADD: Import AppearanceContext
 import { toast } from "react-hot-toast";
 import { useTranslation } from "@/lib/translation/useTranslation";
 
@@ -18,7 +18,7 @@ export default function BackgroundCard({ text, identifier, colorValue, backImg }
     const { t, isInitialized } = useTranslation();
     const { currentUser } = useAuth();
     const { setIsGradient } = useContext(backgroundContext);
-    const [isSelected, setIsSelected] = useState(false);
+    const { appearance, updateAppearance } = useContext(AppearanceContext); // ✅ GET data from context
     const [uploadedFilePreview, setUploadedFilePreview] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [uploadedFile, setUploadedFile] = useState(null);
@@ -43,19 +43,18 @@ export default function BackgroundCard({ text, identifier, colorValue, backImg }
         };
     }, [t, isInitialized]);
 
-    // Fetch current background type to determine if selected
-    const fetchCurrentBackgroundType = async () => {
-        if (!currentUser) return;
-        
-        try {
-            const data = await getAppearanceData();
-            const isCurrentlySelected = data.backgroundType === identifier;
-            setIsSelected(isCurrentlySelected);
-            setIsGradient(data.backgroundType === "Gradient");
-        } catch (error) {
-            console.error("Failed to fetch background type:", error);
+    // ✅ FIXED: Get selection state from context instead of API call
+    const isSelected = useMemo(() => {
+        if (!appearance) return false;
+        return appearance.backgroundType === identifier;
+    }, [appearance?.backgroundType, identifier]);
+
+    // ✅ FIXED: Update gradient state based on context data
+    useEffect(() => {
+        if (appearance?.backgroundType === "Gradient") {
+            setIsGradient(true);
         }
-    };
+    }, [appearance?.backgroundType, setIsGradient]);
 
     const handleFileChange = (e) => {
         const selectedFile = e.target.files[0];
@@ -83,9 +82,17 @@ export default function BackgroundCard({ text, identifier, colorValue, backImg }
         }
         
         try {
+            // ✅ FIXED: Update context immediately (optimistic update)
+            updateAppearance('backgroundType', identifier);
+            
+            // Then update server
             await updateThemeBackground(identifier);
-            setIsSelected(true);
+            
+            console.log('✅ Background type updated:', identifier);
         } catch (error) {
+            console.error('❌ Failed to update background:', error);
+            // ✅ FIXED: Revert optimistic update on error
+            updateAppearance('backgroundType', appearance?.backgroundType);
             throw error;
         }
     };
@@ -97,19 +104,26 @@ export default function BackgroundCard({ text, identifier, colorValue, backImg }
         
         setIsLoading(true);
         try {
+            // ✅ FIXED: Optimistic update first
+            updateAppearance('backgroundType', identifier);
+            
             // Upload file and update background type
+            let result;
             if (identifier === "Image") {
-                await uploadBackgroundImage(uploadedFile);
+                result = await uploadBackgroundImage(uploadedFile);
+                updateAppearance('backgroundImage', result.downloadURL);
             } else if (identifier === "Video") {
-                await uploadBackgroundVideo(uploadedFile);
+                result = await uploadBackgroundVideo(uploadedFile);
+                updateAppearance('backgroundVideo', result.downloadURL);
             }
             
-            // The API automatically sets the background type
             handleReset();
-            await fetchCurrentBackgroundType(); // Refresh selection state
+            console.log('✅ Background file uploaded successfully');
             
         } catch (error) {
             console.error("Upload error:", error);
+            // ✅ FIXED: Revert optimistic update on error
+            updateAppearance('backgroundType', appearance?.backgroundType);
             throw error;
         } finally {
             setIsLoading(false);
@@ -162,13 +176,6 @@ export default function BackgroundCard({ text, identifier, colorValue, backImg }
             error: (err) => err.message || translations.toastError
         });
     };
-    
-    // Initial data fetch
-    useEffect(() => {
-        if (currentUser) {
-            fetchCurrentBackgroundType();
-        }
-    }, [identifier, currentUser]);
 
     // Cleanup preview URL
     useEffect(() => {
@@ -179,7 +186,8 @@ export default function BackgroundCard({ text, identifier, colorValue, backImg }
         };
     }, [uploadedFilePreview]);
 
-    if (!isInitialized || !currentUser) return null;
+    // ✅ FIXED: Don't render if appearance data not loaded yet
+    if (!isInitialized || !currentUser || !appearance) return null;
 
     return (
         <div className="min-w-[8rem] flex-1 items-center flex flex-col">

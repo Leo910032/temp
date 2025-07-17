@@ -1,9 +1,10 @@
-// app/dashboard/(dashboard pages)/appearance/elements/ProfileImageHandler.jsx - SERVER-SIDE VERSION
+// app/dashboard/(dashboard pages)/appearance/elements/ProfileImageHandler.jsx - FIXED VERSION
 "use client"
 import { useAuth } from "@/contexts/AuthContext";
-import { uploadProfileImage, removeProfileImage, getAppearanceData } from "@/lib/services/appearanceService";
+import { uploadProfileImage, removeProfileImage } from "@/lib/services/appearanceService";
+import { AppearanceContext } from "../page"; // ✅ Import context
 import Image from "next/image";
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useState, useEffect, useMemo, useContext } from "react";
 import { FaCheck, FaX } from "react-icons/fa6";
 import { toast } from "react-hot-toast";
 import { useTranslation } from "@/lib/translation/useTranslation";
@@ -11,11 +12,13 @@ import { useTranslation } from "@/lib/translation/useTranslation";
 export default function ProfileImageManager() {
     const { t, isInitialized } = useTranslation();
     const { currentUser } = useAuth();
+    
+    // ✅ NEW: Get data from context instead of direct API calls
+    const { appearance, updateAppearance } = useContext(AppearanceContext);
+    
     const [uploadedPhoto, setUploadedPhoto] = useState(null);
     const [uploadedPhotoPreview, setUploadedPhotoPreview] = useState('');
     const [profilePicture, setProfilePicture] = useState(null);
-    const [currentProfilePhoto, setCurrentProfilePhoto] = useState('');
-    const [displayName, setDisplayName] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
     const [previewing, setPreviewing] = useState(false);
@@ -42,24 +45,15 @@ export default function ProfileImageManager() {
         };
     }, [t, isInitialized]);
 
-    // Fetch current profile data
-    const fetchProfileData = async () => {
-        if (!currentUser) return;
+    // ✅ IMPROVED: Update profile picture element based on context data
+    const updateProfilePictureElement = useMemo(() => {
+        if (!appearance) return null;
         
-        try {
-            const data = await getAppearanceData();
-            setCurrentProfilePhoto(data.profilePhoto || '');
-            setDisplayName(data.displayName || '');
-            updateProfilePictureElement(data.profilePhoto, data.displayName);
-        } catch (error) {
-            console.error("Failed to fetch profile data:", error);
-        }
-    };
-
-    // Update profile picture element
-    const updateProfilePictureElement = (photoUrl, name) => {
+        const photoUrl = appearance.profilePhoto || '';
+        const name = appearance.displayName || '';
+        
         if (photoUrl) {
-            setProfilePicture(
+            return (
                 <Image
                     src={photoUrl}
                     alt={translations.altProfile}
@@ -71,13 +65,16 @@ export default function ProfileImageManager() {
             );
         } else {
             const initial = name?.[0] || currentUser?.email?.[0] || 'U';
-            setProfilePicture(
+            return (
                 <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
                     <span className="text-3xl font-semibold uppercase">{initial}</span>
                 </div>
             );
         }
-    };
+    }, [appearance?.profilePhoto, appearance?.displayName, currentUser?.email, translations.altProfile]);
+
+    // ✅ REMOVED: No more direct API data fetching
+    // The data now comes from the AppearanceContext
 
     // Handle file selection
     const handleFileChange = (e) => {
@@ -100,7 +97,7 @@ export default function ProfileImageManager() {
         setPreviewing(true);
     };
 
-    // Handle image upload
+    // ✅ IMPROVED: Handle image upload with context updates
     const handleUploadPhoto = async () => {
         if (!uploadedPhoto || !currentUser) {
             throw new Error(translations.errorNotAuth);
@@ -110,9 +107,8 @@ export default function ProfileImageManager() {
         try {
             const result = await uploadProfileImage(uploadedPhoto);
             
-            // Update local state
-            setCurrentProfilePhoto(result.downloadURL);
-            updateProfilePictureElement(result.downloadURL, displayName);
+            // ✅ NEW: Update context instead of local state
+            updateAppearance('profilePhoto', result.downloadURL);
             
             handleReset();
             toast.success(translations.toastSuccess);
@@ -125,7 +121,7 @@ export default function ProfileImageManager() {
         }
     };
 
-    // Handle image removal
+    // ✅ IMPROVED: Handle image removal with context updates
     const handleRemoveProfilePicture = async () => {
         if (!currentUser || isRemoving) return;
         
@@ -133,9 +129,8 @@ export default function ProfileImageManager() {
         try {
             await removeProfileImage();
             
-            // Update local state
-            setCurrentProfilePhoto('');
-            updateProfilePictureElement('', displayName);
+            // ✅ NEW: Update context instead of local state
+            updateAppearance('profilePhoto', '');
             
             toast.success(translations.toastRemoveSuccess);
             
@@ -161,12 +156,8 @@ export default function ProfileImageManager() {
         }
     };
 
-    // Initial data fetch
-    useEffect(() => {
-        if (currentUser) {
-            fetchProfileData();
-        }
-    }, [currentUser]);
+    // ✅ REMOVED: No more useEffect for data fetching
+    // Data comes from context automatically
 
     // Cleanup preview URL
     useEffect(() => {
@@ -177,8 +168,8 @@ export default function ProfileImageManager() {
         };
     }, [uploadedPhotoPreview]);
 
-    // LOADING SKELETON
-    if (!isInitialized || !currentUser) {
+    // ✅ IMPROVED: Loading skeleton based on context availability
+    if (!isInitialized || !currentUser || !appearance) {
         return (
             <div className="flex w-full p-6 items-center gap-4 animate-pulse">
                 <div className="h-[6rem] w-[6rem] rounded-full bg-gray-200"></div>
@@ -196,7 +187,8 @@ export default function ProfileImageManager() {
                 className="h-[6rem] w-[6rem] cursor-pointer rounded-full grid place-items-center border overflow-hidden hover:opacity-80 transition-opacity" 
                 onClick={() => inputRef.current?.click()}
             >
-                {profilePicture}
+                {/* ✅ NEW: Use memoized profile picture element */}
+                {updateProfilePictureElement}
             </div>
             
             <div className="flex-1 grid gap-2 relative">

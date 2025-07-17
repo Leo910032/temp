@@ -1,17 +1,18 @@
-// app/dashboard/(dashboard pages)/appearance/elements/ThemeCard.jsx - SERVER-SIDE VERSION
+// app/dashboard/(dashboard pages)/appearance/elements/ThemeCard.jsx - FIXED VERSION
 "use client"
 import { useAuth } from "@/contexts/AuthContext";
-import { updateTheme, updateThemeTextColour, getAppearanceData } from "@/lib/services/appearanceService";
+import { updateTheme, updateThemeTextColour } from "@/lib/services/appearanceService";
 import { useTranslation } from "@/lib/translation/useTranslation";
+import { AppearanceContext } from "../page"; // ✅ Import the context
 import Image from "next/image";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useContext } from "react"; // ✅ Add useContext
 import { FaCheck } from "react-icons/fa6";
 import { toast } from "react-hot-toast";
 
 export default function ThemeCard({ type, pic, text }) {
     const { currentUser } = useAuth();
     const { t, isInitialized } = useTranslation();
-    const [isSelectedTheme, setIsSelectedTheme] = useState(false);
+    const { appearance, updateAppearance } = useContext(AppearanceContext); // ✅ Get data from context
     const [themeColor, setThemeColor] = useState("");
     const [isUpdating, setIsUpdating] = useState(false);
 
@@ -73,50 +74,50 @@ export default function ThemeCard({ type, pic, text }) {
         return themeMap[themeName] || themeName;
     };
 
-    // Fetch current theme selection
-    const fetchCurrentTheme = async () => {
-        if (!currentUser) return;
-        
-        try {
-            const data = await getAppearanceData();
-            const currentTheme = text || "Custom";
-            setIsSelectedTheme(data.selectedTheme === currentTheme);
-        } catch (error) {
-            console.error("Failed to fetch current theme:", error);
-        }
-    };
+    // ✅ FIXED: Get selection state from context instead of API call
+    const themeName = text || "Custom";
+    const isSelectedTheme = appearance?.selectedTheme === themeName;
 
     const handleUpdateTheme = async () => {
         if (!currentUser || isUpdating || !isInitialized) return;
         
         setIsUpdating(true);
-        const themeName = text || "Custom";
         const displayName = getTranslatedThemeName(themeName);
         
         try {
+            // ✅ OPTIMISTIC UPDATE: Update UI immediately
+            updateAppearance('selectedTheme', themeName);
+            if (themeColor) {
+                updateAppearance('themeFontColor', themeColor);
+            }
+            
             // Show loading toast
             const loadingToast = toast.loading(translations.updating);
             
-            // Update theme
+            // Update theme on server
             await updateTheme(themeName, themeColor);
             
             // Update text color for special themes
             if (specialThemes.includes(themeName) && themeColor) {
                 await updateThemeTextColour(themeColor);
+                updateAppearance('themeTextColour', themeColor);
             }
-            
-            // Update local state
-            setIsSelectedTheme(true);
             
             // Dismiss loading toast and show success
             toast.dismiss(loadingToast);
-            toast.success(`${translations.updateSuccess.replace('{{theme}}', displayName)}`, {
+            toast.success(`${translations.updateSuccess}`, {
                 duration: 3000,
                 icon: '🎨',
             });
             
         } catch (error) {
             console.error("Failed to update theme:", error);
+            
+            // ✅ ROLLBACK: Revert optimistic update on error
+            if (appearance?.selectedTheme) {
+                updateAppearance('selectedTheme', appearance.selectedTheme);
+            }
+            
             toast.error(error.message || translations.updateError, {
                 duration: 4000,
                 icon: '❌',
@@ -126,7 +127,7 @@ export default function ThemeCard({ type, pic, text }) {
         }
     };
 
-    // Set theme-specific colors when selected
+    // Set theme-specific colors when this theme is selected
     useEffect(() => {
         if (!isSelectedTheme) return;
         
@@ -147,16 +148,9 @@ export default function ThemeCard({ type, pic, text }) {
                 break;
         }
     }, [text, isSelectedTheme]);
-    
-    // Fetch current theme on mount and when user changes
-    useEffect(() => {
-        if (currentUser && isInitialized) {
-            fetchCurrentTheme();
-        }
-    }, [text, currentUser, isInitialized]);
 
-    // Don't render if user is not authenticated or translations not loaded
-    if (!currentUser || !isInitialized) {
+    // ✅ IMPROVED: Don't render if context data not available
+    if (!currentUser || !isInitialized || !appearance) {
         return (
             <div className="min-w-[8rem] flex-1 items-center flex flex-col animate-pulse">
                 <div className="w-full h-[13rem] bg-gray-200 rounded-lg"></div>
@@ -165,7 +159,6 @@ export default function ThemeCard({ type, pic, text }) {
         );
     }
 
-    const themeName = text || "Custom";
     const displayName = getTranslatedThemeName(themeName);
 
     return (

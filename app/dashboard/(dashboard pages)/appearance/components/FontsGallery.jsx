@@ -1,18 +1,17 @@
 "use client"
 import { useContext, useEffect, useState, useMemo } from "react";
 import { FaCheck, FaX } from "react-icons/fa6";
-import { AppearanceContext } from "../page"; // Import the main context
+import { AppearanceContext } from "../page";
 import { useDebounce } from "@/LocalHooks/useDebounce";
 import { availableFonts_Classic } from "@/lib/FontsList";
 import { useTranslation } from "@/lib/translation/useTranslation";
-import { toast } from "react-hot-toast";
 
 export default function FontsGallery({ setOpenFontGallery }) {
     const { appearance, updateAppearance } = useContext(AppearanceContext);
     const { t, isInitialized } = useTranslation();
 
-    // Local state for this modal only
-    const [selectedFontId, setSelectedFontId] = useState(appearance.fontType);
+    // ✅ FIXED: Use array index instead of fontType ID
+    const [selectedFontIndex, setSelectedFontIndex] = useState(appearance?.fontType || 0);
     const [fontList, setFontList] = useState(availableFonts_Classic);
     const [searchParam, setSearchParam] = useState("");
     const debouncedSearch = useDebounce(searchParam, 300);
@@ -28,6 +27,13 @@ export default function FontsGallery({ setOpenFontGallery }) {
             saveButton: t('dashboard.appearance.fonts_gallery.save_button'),
         };
     }, [t, isInitialized]);
+
+    // ✅ FIXED: Initialize selected font index when appearance loads
+    useEffect(() => {
+        if (appearance?.fontType !== undefined) {
+            setSelectedFontIndex(appearance.fontType);
+        }
+    }, [appearance?.fontType]);
     
     // Effect for filtering the font list based on search
     useEffect(() => {
@@ -41,18 +47,27 @@ export default function FontsGallery({ setOpenFontGallery }) {
         }
     }, [debouncedSearch]);
 
-    // Function to handle saving the selected font
+    // ✅ FIXED: Handle font selection by array index
+    const handleFontSelect = (fontIndex) => {
+        setSelectedFontIndex(fontIndex);
+    };
+
+    // ✅ FIXED: Save using array index
     const handleSave = () => {
-        if (selectedFontId !== appearance.fontType) {
-            // Call the central update function from the context
-            updateAppearance('fontType', selectedFontId);
-            // The debounced save in the parent page component will handle the API call
+        if (selectedFontIndex !== appearance?.fontType) {
+            // Update using array index (0-based)
+            updateAppearance('fontType', selectedFontIndex);
+            console.log(`🔤 Font updated to index ${selectedFontIndex}: ${availableFonts_Classic[selectedFontIndex]?.name}`);
         }
         setOpenFontGallery(false);
     };
 
     if (!isInitialized || !appearance) {
-        return <div className="fixed inset-0 bg-white/50 grid place-items-center z-[9999]"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div></div>;
+        return (
+            <div className="fixed inset-0 bg-white/50 grid place-items-center z-[9999]">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+            </div>
+        );
     }
 
     return (
@@ -77,22 +92,44 @@ export default function FontsGallery({ setOpenFontGallery }) {
 
                 <div className="flex-1 overflow-y-auto pr-2">
                     <section className="flex flex-col gap-1">
-                        {fontList.length > 0 && <span className="px-2 py-3 text-sm font-medium text-gray-500">{translations.classicSection}</span>}
-                        {fontList.map((fontItem) => (
-                            <div 
-                                className={`${fontItem.class} select-none px-5 py-4 flex items-center justify-between cursor-pointer w-full rounded-xl transition-colors ${selectedFontId === fontItem.id ? "bg-blue-100 text-blue-800" : "hover:bg-gray-100"}`} 
-                                key={fontItem.id} 
-                                onClick={() => setSelectedFontId(fontItem.id)}
-                            >
-                                {fontItem.name}
-                                {selectedFontId === fontItem.id && <span className="flex items-center gap-2 text-sm font-semibold">
-                                    <FaCheck />
-                                    {translations.selectedStatus}
-                                </span>}
-                            </div>
-                        ))}
+                        {fontList.length > 0 && (
+                            <span className="px-2 py-3 text-sm font-medium text-gray-500">
+                                {translations.classicSection}
+                            </span>
+                        )}
+                        
+                        {/* ✅ FIXED: Use array index for comparison */}
+                        {fontList.map((fontItem, index) => {
+                            // Find the original index in the full array for selection comparison
+                            const originalIndex = availableFonts_Classic.findIndex(f => f.id === fontItem.id);
+                            const isSelected = selectedFontIndex === originalIndex;
+                            
+                            return (
+                                <div 
+                                    className={`${fontItem.class} select-none px-5 py-4 flex items-center justify-between cursor-pointer w-full rounded-xl transition-colors ${
+                                        isSelected ? "bg-blue-100 text-blue-800" : "hover:bg-gray-100"
+                                    }`} 
+                                    key={fontItem.id} 
+                                    onClick={() => handleFontSelect(originalIndex)}
+                                >
+                                    <span className="font-semibold">
+                                        {fontItem.name}
+                                    </span>
+                                    {isSelected && (
+                                        <span className="flex items-center gap-2 text-sm font-semibold">
+                                            <FaCheck />
+                                            {translations.selectedStatus}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
 
-                        {fontList.length === 0 && <div className="w-full text-center text-gray-500 py-10">{translations.noFontsFound}</div>}
+                        {fontList.length === 0 && (
+                            <div className="w-full text-center text-gray-500 py-10">
+                                {translations.noFontsFound}
+                            </div>
+                        )}
                     </section>
                 </div>
                 

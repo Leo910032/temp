@@ -1,24 +1,25 @@
-// app/dashboard/(dashboard pages)/appearance/elements/TextDetails.jsx - SERVER-SIDE VERSION
+// app/dashboard/(dashboard pages)/appearance/elements/TextDetails.jsx - FIXED VERSION
 "use client"
 
 import { useDebounce } from "@/LocalHooks/useDebounce";
 import { useAuth } from "@/contexts/AuthContext";
-import { updateDisplayName, updateBio, getAppearanceData } from "@/lib/services/appearanceService";
-import { useEffect, useState, useMemo, useRef } from "react";
+import { updateDisplayName, updateBio } from "@/lib/services/appearanceService";
+import { useEffect, useState, useMemo, useRef, useContext } from "react";
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { toast } from "react-hot-toast";
+import { AppearanceContext } from "../page"; // ✅ IMPORT: Use centralized context
 
 export default function TextDetails() {
     const { t, isInitialized } = useTranslation();
     const { currentUser } = useAuth();
+    const { appearance, updateAppearance } = useContext(AppearanceContext); // ✅ USE: Context instead of API calls
+    
     const [displayName, setDisplayName] = useState("");
     const [myBio, setMyBio] = useState("");
-    const [dataLoaded, setDataLoaded] = useState(false);
-    const [dataLoadedBio, setDataLoadedBio] = useState(false);
     const [isUpdatingName, setIsUpdatingName] = useState(false);
     const [isUpdatingBio, setIsUpdatingBio] = useState(false);
     
-    const debounceDisplayName = useDebounce(displayName, 1000); // Increased for server calls
+    const debounceDisplayName = useDebounce(displayName, 1000);
     const debounceMyBio = useDebounce(myBio, 1000);
     
     const isInitialLoad = useRef(true);
@@ -34,18 +35,13 @@ export default function TextDetails() {
         };
     }, [t, isInitialized]);
 
-    // Fetch initial data
-    const fetchInitialData = async () => {
-        if (!currentUser) return;
-        
-        try {
-            const data = await getAppearanceData();
-            setDisplayName(data.displayName || '');
-            setMyBio(data.bio || '');
-        } catch (error) {
-            console.error("Failed to fetch profile data:", error);
+    // ✅ SYNC: Local state with context data (replaces fetchInitialData)
+    useEffect(() => {
+        if (appearance) {
+            setDisplayName(appearance.displayName || '');
+            setMyBio(appearance.bio || '');
         }
-    };
+    }, [appearance]);
 
     // Handle display name updates
     const handleDisplayNameUpdate = async (name) => {
@@ -57,15 +53,22 @@ export default function TextDetails() {
             return;
         }
 
+        // ✅ OPTIMISTIC UPDATE: Update context immediately
+        updateAppearance('displayName', name);
+
         setIsUpdatingName(true);
         try {
             await updateDisplayName(name);
-            // Success is silent for text updates to avoid spam
+            console.log('✅ Display name updated successfully');
         } catch (error) {
-            console.error("Failed to update display name:", error);
+            console.error("❌ Failed to update display name:", error);
             toast.error(error.message || translations.errorUpdateFailed);
-            // Revert on error
-            await fetchInitialData();
+            
+            // ✅ REVERT: Restore previous value on error
+            if (appearance) {
+                setDisplayName(appearance.displayName || '');
+                updateAppearance('displayName', appearance.displayName || '');
+            }
         } finally {
             setIsUpdatingName(false);
         }
@@ -81,53 +84,57 @@ export default function TextDetails() {
             return;
         }
 
+        // ✅ OPTIMISTIC UPDATE: Update context immediately
+        updateAppearance('bio', bio);
+
         setIsUpdatingBio(true);
         try {
             await updateBio(bio);
-            // Success is silent for text updates to avoid spam
+            console.log('✅ Bio updated successfully');
         } catch (error) {
-            console.error("Failed to update bio:", error);
+            console.error("❌ Failed to update bio:", error);
             toast.error(error.message || translations.errorUpdateFailed);
-            // Revert on error
-            await fetchInitialData();
+            
+            // ✅ REVERT: Restore previous value on error
+            if (appearance) {
+                setMyBio(appearance.bio || '');
+                updateAppearance('bio', appearance.bio || '');
+            }
         } finally {
             setIsUpdatingBio(false);
         }
     };
 
-    // Initial data fetch
-    useEffect(() => {
-        if (currentUser && !dataLoaded) {
-            fetchInitialData();
-            setDataLoaded(true);
-        }
-    }, [currentUser]);
-
     // Handle debounced display name updates
     useEffect(() => {
-        if (!dataLoaded || isInitialLoad.current) {
-            isInitialLoad.current = false;
+        // ✅ IMPROVED: Better initial load detection
+        if (!appearance || isInitialLoad.current) {
+            if (appearance) {
+                isInitialLoad.current = false;
+            }
             return;
         }
         
-        if (displayName !== undefined && displayName !== null) {
+        // Only update if the value actually changed
+        if (displayName !== appearance.displayName && displayName !== "") {
             handleDisplayNameUpdate(displayName);
         }
-    }, [debounceDisplayName, currentUser]);
+    }, [debounceDisplayName, appearance]);
 
     // Handle debounced bio updates
     useEffect(() => {
-        if (!dataLoadedBio || isInitialLoad.current) {
-            setDataLoadedBio(true);
+        if (!appearance || isInitialLoad.current) {
             return;
         }
         
-        if (myBio !== undefined && myBio !== null) {
+        // Only update if the value actually changed
+        if (myBio !== appearance.bio) {
             handleBioUpdate(myBio);
         }
-    }, [debounceMyBio, currentUser]);
+    }, [debounceMyBio, appearance]);
 
-    if (!isInitialized || !currentUser) {
+    // ✅ LOADING: Show skeleton while context is loading
+    if (!isInitialized || !currentUser || !appearance) {
         return (
             <div className="flex px-6 pb-6 pt-2 flex-col gap-2 animate-pulse">
                 <div className="h-[58px] rounded-lg bg-gray-200"></div>
@@ -139,7 +146,7 @@ export default function TextDetails() {
     return (
         <div className="flex px-6 pb-6 pt-2 flex-col gap-2">
             {/* Display Name Input */}
-            <div className={`flex-1 relative pt-2 flex items-center rounded-lg bg-black bg-opacity-[0.05] focus-within:border-black focus-within:border-2 border border-transparent ${
+            <div className={`flex-1 relative pt-2 flex items-center rounded-lg bg-black bg-opacity-[0.05] focus-within:border-black focus-within:border-2 border border-transparent transition-opacity ${
                 isUpdatingName ? 'opacity-75' : ''
             }`}>
                 <input
@@ -157,7 +164,7 @@ export default function TextDetails() {
                 
                 {/* Loading indicator for display name */}
                 {isUpdatingName && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <div className="absolute right-10 top-1/2 -translate-y-1/2">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                     </div>
                 )}
@@ -169,7 +176,7 @@ export default function TextDetails() {
             </div>
 
             {/* Bio Textarea */}
-            <div className={`flex-1 relative pt-2 flex items-center rounded-lg bg-black bg-opacity-[0.05] focus-within:border-black focus-within:border-[2px] border border-transparent ${
+            <div className={`flex-1 relative pt-2 flex items-center rounded-lg bg-black bg-opacity-[0.05] focus-within:border-black focus-within:border-[2px] border border-transparent transition-opacity ${
                 isUpdatingBio ? 'opacity-75' : ''
             }`}>
                 <textarea
@@ -188,7 +195,7 @@ export default function TextDetails() {
                 
                 {/* Loading indicator for bio */}
                 {isUpdatingBio && (
-                    <div className="absolute right-3 top-4">
+                    <div className="absolute right-10 top-4">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                     </div>
                 )}

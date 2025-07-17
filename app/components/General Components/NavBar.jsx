@@ -1,29 +1,34 @@
 "use client"
-import { fireApp } from "@/important/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { isAdmin } from "@/lib/adminAuth";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { getAppearanceData } from "@/lib/services/appearanceService";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import ProfileCard from "../NavComponents/ProfileCard";
 import ShareCard from "../NavComponents/ShareCard";
 import LanguageSwitcher from "../LanguageSwitcher/LanguageSwitcher";
 
 export const NavContext = React.createContext();
 
+// ✅ GLOBAL CACHE: Store navbar data to prevent refetching
+let globalNavDataCache = null;
+let globalNavDataFetched = false;
+
 export default function NavBar() {
     const router = usePathname();
     const { currentUser } = useAuth();
     const { t, isInitialized } = useTranslation();
-    const [activePage, setActivePage] = useState();
+    const [activePage, setActivePage] = useState(0);
     const [profilePicture, setProfilePicture] = useState(null);
     const [username, setUsername] = useState("");
+    const [displayName, setDisplayName] = useState("");
     const [myLink, setMyLink] = useState("");
     const [showProfileCard, setShowProfileCard] = useState(false);
     const [showShareCard, setShowShareCard] = useState(false);
+    const [isLoading, setIsLoading] = useState(!globalNavDataFetched);
     const profileCardRef = useRef(null);
     const shareCardRef = useRef(null);
 
@@ -40,19 +45,124 @@ export default function NavBar() {
         };
     }, [t, isInitialized]);
 
-    // CHECK IF USER IS ADMIN - Use Firebase Auth email directly
+    // ✅ FIXED: Check if user is admin with proper email access
     const userIsAdmin = useMemo(() => {
-        // Use the email from Firebase Auth instead of Firestore
-        return currentUser ? isAdmin(currentUser.email) : false;
+        if (!currentUser?.email) {
+            console.log('🔍 No user email available for admin check');
+            return false;
+        }
+        
+        const adminStatus = isAdmin(currentUser.email);
+        console.log('🔍 Admin check:', {
+            email: currentUser.email,
+            isAdmin: adminStatus
+        });
+        
+        return adminStatus;
+    }, [currentUser?.email]);
+
+    // ✅ PERSISTENT DATA FETCH: Use cache to prevent refetching
+    const fetchUserData = useCallback(async (forceRefresh = false) => {
+        if (!currentUser) return;
+        
+        // ✅ CHECK CACHE FIRST: Use cached data if available and not forcing refresh
+        if (globalNavDataCache && !forceRefresh) {
+            console.log('🔄 NavBar: Using cached data');
+            updateNavbarState(globalNavDataCache);
+            setIsLoading(false);
+            return;
+        }
+        
+        setIsLoading(true);
+        try {
+            console.log('📥 NavBar: Fetching fresh data from server...');
+            const data = await getAppearanceData();
+            
+            // ✅ CACHE DATA: Store globally for future use
+            globalNavDataCache = {
+                username: data.username || "",
+                displayName: data.displayName || data.username || "",
+                profilePhoto: data.profilePhoto || ""
+            };
+            globalNavDataFetched = true;
+            
+            updateNavbarState(globalNavDataCache);
+            console.log('✅ NavBar: User data loaded and cached');
+            
+        } catch (error) {
+            console.error('❌ NavBar: Failed to fetch user data:', error);
+            
+            // ✅ FALLBACK: Use email-based profile if fetch fails
+            setProfilePicture(
+                <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                    <span className="text-3xl font-semibold uppercase">
+                        {currentUser.email ? currentUser.email.charAt(0) : 'U'}
+                    </span>
+                </div>
+            );
+        } finally {
+            setIsLoading(false);
+        }
     }, [currentUser]);
 
-    // Debug logging
-    useEffect(() => {
-        if (currentUser) {
-            console.log('🔍 Current user email (from Auth):', currentUser.email);
-            console.log('🔐 Is admin?', userIsAdmin);
+    // ✅ HELPER: Update navbar state from data
+    const updateNavbarState = useCallback((data) => {
+        const newUsername = data.username || "";
+        const newDisplayName = data.displayName || newUsername;
+        const profilePhoto = data.profilePhoto || "";
+
+        setUsername(newUsername);
+        setDisplayName(newDisplayName);
+        setMyLink(newUsername ? `https://mylinks.fabiconcept.online/${newUsername}` : "");
+
+        // Set profile picture
+        if (profilePhoto) {
+            setProfilePicture(
+                <Image
+                    src={profilePhoto}
+                    alt="profile"
+                    height={1000}
+                    width={1000}
+                    className="min-w-full h-full object-cover"
+                    priority
+                />
+            );
+        } else {
+            setProfilePicture(
+                <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                    <span className="text-3xl font-semibold uppercase">
+                        {newDisplayName ? newDisplayName.charAt(0) : (currentUser?.email ? currentUser.email.charAt(0) : 'U')}
+                    </span>
+                </div>
+            );
         }
-    }, [currentUser, userIsAdmin]);
+    }, [currentUser]);
+
+    // ✅ LOAD DATA: Use cached data or fetch fresh
+    useEffect(() => {
+        if (currentUser && isInitialized) {
+            if (globalNavDataCache) {
+                // Use cached data immediately
+                console.log('⚡ NavBar: Using cached data on mount');
+                updateNavbarState(globalNavDataCache);
+                setIsLoading(false);
+            } else {
+                // Fetch fresh data
+                console.log('🚀 NavBar: No cache, fetching data...');
+                fetchUserData();
+            }
+        } else if (!currentUser) {
+            // Reset state and cache when user logs out
+            console.log('👋 NavBar: User logged out, clearing state');
+            globalNavDataCache = null;
+            globalNavDataFetched = false;
+            setUsername("");
+            setDisplayName("");
+            setMyLink("");
+            setProfilePicture(null);
+            setIsLoading(false);
+        }
+    }, [currentUser, isInitialized, fetchUserData, updateNavbarState]);
 
     const handleShowProfileCard = () => {
         if (username === "") return;
@@ -86,73 +196,6 @@ export default function NavBar() {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [showShareCard]);
 
-    // --- REFACTORED DATA FETCHING LOGIC ---
-    useEffect(() => {
-        // If user logs out, clear the state and stop.
-        if (!currentUser) {
-            setUsername("");
-            setMyLink("");
-            setProfilePicture(null);
-            return;
-        }
-
-        const docRef = doc(fireApp, "AccountData", currentUser.uid);
-
-        // Use a single onSnapshot listener for all user data.
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                
-                // Get all data from the snapshot
-                const newUsername = data.username || "";
-                const displayName = data.displayName || newUsername;
-                const profilePhoto = data.profilePhoto || "";
-
-                setUsername(newUsername);
-                setMyLink(newUsername ? `https://mylinks.fabiconcept.online/${newUsername}` : "");
-
-                // Set profile picture based on the data
-                if (profilePhoto) {
-                    setProfilePicture(
-                        <Image
-                            src={profilePhoto}
-                            alt="profile"
-                            height={1000}
-                            width={1000}
-                            className="min-w-full h-full object-cover"
-                            priority
-                        />
-                    );
-                } else {
-                    setProfilePicture(
-                        <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
-                            <span className="text-3xl font-semibold uppercase">
-                                {displayName ? displayName.charAt(0) : 'U'}
-                            </span>
-                        </div>
-                    );
-                }
-            } else {
-                // This handles the case for a new user whose document hasn't been created yet.
-                console.log("User document not found yet for UID:", currentUser.uid);
-                // Set a default state while waiting
-                setProfilePicture(
-                    <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
-                        <span className="text-3xl font-semibold uppercase">
-                            {currentUser.email ? currentUser.email.charAt(0) : 'U'}
-                        </span>
-                    </div>
-                );
-            }
-        }, (error) => {
-            console.error("Error fetching user data with onSnapshot:", error);
-        });
-
-        // Return the cleanup function to prevent memory leaks
-        return () => unsubscribe();
-        
-    }, [currentUser]);
-
     useEffect(() => {
         switch (router) {
             case "/dashboard": setActivePage(0); break;
@@ -167,7 +210,7 @@ export default function NavBar() {
         }
     }, [router]);
     
-    // While currentUser is loading, we can show a minimal or empty nav.
+    // While currentUser is loading, show minimal nav
     if (!currentUser) {
         return null;
     }
@@ -193,18 +236,23 @@ export default function NavBar() {
             </div>
         );
     }
+
+    // ✅ CONTEXT VALUE: Optimized with refresh capability
+    const contextValue = useMemo(() => ({
+        username,
+        displayName,
+        myLink,
+        profilePicture,
+        showProfileCard,
+        setShowProfileCard,
+        showShareCard,
+        setShowShareCard,
+        currentUser,
+        refreshUserData: () => fetchUserData(true) // Allow manual refresh
+    }), [username, displayName, myLink, profilePicture, showProfileCard, showShareCard, currentUser, fetchUserData]);
     
     return (
-        <NavContext.Provider value={{ 
-            username, 
-            myLink, 
-            profilePicture, 
-            showProfileCard, 
-            setShowProfileCard, 
-            showShareCard, 
-            setShowShareCard,
-            currentUser
-        }}>
+        <NavContext.Provider value={contextValue}>
             <div className="w-full justify-between flex items-center rounded-[3rem] py-3 sticky top-0 z-[9999999999] px-3 mx-auto bg-white border backdrop-blur-lg">
                 <div className="flex items-center gap-8">
                     <Link href={'/dashboard'} className="ml-3">
@@ -235,7 +283,7 @@ export default function NavBar() {
                             {translations.settings}
                         </Link>
                         
-                        {/* ADMIN PANEL BUTTON - Only show if user is admin */}
+                        {/* ✅ ADMIN PANEL BUTTON - Desktop Version */}
                         {userIsAdmin && (
                             <Link href={'/admin'} className={`flex items-center gap-2 px-2 py-2 active:scale-90 active:opacity-40 hover:bg-red-100 hover:bg-opacity-75 rounded-lg text-sm font-semibold border border-red-200 ${activePage === 5 ? "bg-red-100 text-red-700 opacity-100" : "text-red-600 hover:text-red-700"}`}>
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -251,7 +299,7 @@ export default function NavBar() {
                     {/* LANGUAGE SWITCHER */}
                     <LanguageSwitcher />
                     
-                    {/* ADMIN PANEL BUTTON - Mobile/Small Screen Version */}
+                    {/* ✅ ADMIN PANEL BUTTON - Mobile Version */}
                     {userIsAdmin && (
                         <Link href={'/admin'} className="p-2 flex items-center relative gap-2 rounded-full border border-red-200 bg-red-50 cursor-pointer hover:bg-red-100 active:scale-90 overflow-hidden md:hidden">
                             <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -266,13 +314,19 @@ export default function NavBar() {
                     <div className="relative" ref={profileCardRef}>
                         <div className="grid place-items-center relative rounded-full border h-[2.5rem] w-[2.5rem] cursor-pointer hover:scale-110 active:scale-95 overflow-hidden" onClick={handleShowProfileCard}>
                             <div className="absolute z-10 w-full h-full sm:block hidden"></div>
-                            {profilePicture}
+                            {isLoading ? (
+                                <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-200 animate-pulse"></div>
+                            ) : (
+                                profilePicture
+                            )}
                         </div>
                         <ProfileCard />
                         <ShareCard />
                     </div>
                 </div>
             </div>
+            
+            {/* ✅ MOBILE NAVIGATION - Bottom bar */}
             <div className="flex justify-between py-2 px-4 m-2 rounded-xl bg-white sm:hidden">
                 <Link href={'/dashboard'} className={`flex items-center flex-1 justify-center gap-2 px-3 py-2 active:scale-90 active:opacity-40 hover:bg-black hover:bg-opacity-[0.075] rounded-lg text-sm font-semibold ${activePage === 0 ? "opacity-100" : "opacity-50 hover:opacity-70"}`}>
                     <Image src={"https://linktree.sirv.com/Images/icons/links.svg"} alt="links" height={16} width={16} />

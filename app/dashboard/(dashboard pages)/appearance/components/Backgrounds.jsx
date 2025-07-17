@@ -36,7 +36,6 @@ export default function Backgrounds() {
                         </div>
                     ))}
                 </div>
-                {/* Skeleton for pickers if needed */}
             </div>
         );
     }
@@ -45,7 +44,6 @@ export default function Backgrounds() {
         <backgroundContext.Provider value={{ setIsGradient }}>
             <div className="w-full bg-white rounded-3xl my-3 flex flex-col p-6">
                 <div className="grid sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] sm:gap-4 gap-2 w-full">
-                    {/* We now pass 'identifier' for logic and 'text' for display */}
                     <BackgroundCard identifier={"Flat Colour"} text={translations.flatColour} colorValue={"#3d444b"} />
                     <BackgroundCard identifier={"Gradient"} text={translations.gradient} backImg={"linear-gradient(to top, #3d444b, #686d73)"} />
                     <BackgroundCard identifier={"Image"} text={translations.image} />
@@ -56,7 +54,8 @@ export default function Backgrounds() {
                     <BackgroundCard identifier={"Zig Zag"} text={translations.zigZag} backImg={'url("https://linktree.sirv.com/Images/gif/selector-zigzag.0bfe34b10dd92cad79b9.gif")'} />
                 </div>
                 {isGradient && <GradientPicker />}
-                <ColorPicker />
+                {/* ✅ FIXED: Always pass valid colorFor prop for background color */}
+                <ColorPicker colorFor={0} />
             </div>
         </backgroundContext.Provider>
     );

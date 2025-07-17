@@ -1,5 +1,6 @@
+//contexts/AuthContext.js - FIXED VERSION with Token Caching
 "use client"
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { 
   onAuthStateChanged, 
   signOut,
@@ -7,7 +8,7 @@ import {
   GoogleAuthProvider,
   OAuthProvider,
   sendPasswordResetEmail,
-  signInWithCustomToken // <-- Important for the new secure login flow
+  signInWithCustomToken
 } from 'firebase/auth';
 import { auth, fireApp } from '@/important/firebase';
 import { useRouter, usePathname } from 'next/navigation';
@@ -35,12 +36,68 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
+  
+  // ✅ ADD: Token caching to prevent quota exceeded errors
+  const tokenCache = useRef({
+    token: null,
+    expiresAt: 0,
+    refreshPromise: null
+  });
+
+  /**
+   * ✅ NEW: Get cached or fresh token to prevent quota exceeded errors
+   */
+  const getValidToken = useCallback(async (forceRefresh = false) => {
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+
+    const now = Date.now();
+    const cache = tokenCache.current;
+
+    // Return cached token if still valid and not forcing refresh
+    if (!forceRefresh && cache.token && now < cache.expiresAt) {
+      return cache.token;
+    }
+
+    // If there's already a refresh in progress, wait for it
+    if (cache.refreshPromise) {
+      return cache.refreshPromise;
+    }
+
+    // Start new token refresh
+    cache.refreshPromise = (async () => {
+      try {
+        // Get token without forcing refresh to avoid quota issues
+        const token = await currentUser.getIdToken(false);
+        
+        // Cache the token for 50 minutes (tokens expire in 1 hour)
+        cache.token = token;
+        cache.expiresAt = now + (50 * 60 * 1000);
+        
+        console.log('✅ Token refreshed and cached');
+        return token;
+      } catch (error) {
+        console.error('❌ Token refresh failed:', error);
+        throw error;
+      } finally {
+        cache.refreshPromise = null;
+      }
+    })();
+
+    return cache.refreshPromise;
+  }, [currentUser]);
 
   // Listen for authentication state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setLoading(false);
+      
+      // ✅ Clear token cache when user changes
+      if (!user) {
+        tokenCache.current = { token: null, expiresAt: 0, refreshPromise: null };
+      }
       
       // Automatically redirect user if they are on a login/signup page while authenticated
       if (user && (pathname === '/login' || pathname === '/signup')) {
@@ -54,7 +111,6 @@ export function AuthProvider({ children }) {
 
   /**
    * Creates a user document in Firestore for new social sign-ins.
-   * This is safe because it only runs after a user is already authenticated via a popup.
    */
   const createUserDocumentForSocialLogin = async (user) => {
     const userRef = doc(fireApp, "AccountData", user.uid);
@@ -116,7 +172,6 @@ export function AuthProvider({ children }) {
 
   /**
    * Logs in a user via a secure server-side API route.
-   * This is the new, secure implementation.
    */
   const login = async (usernameOrEmail, password) => {
     const response = await fetch('/api/auth/login', {
@@ -136,6 +191,8 @@ export function AuthProvider({ children }) {
    * Logs out the current user.
    */
   const logout = async () => {
+    // Clear token cache on logout
+    tokenCache.current = { token: null, expiresAt: 0, refreshPromise: null };
     await signOut(auth);
     router.push('/login');
   };
@@ -166,7 +223,7 @@ export function AuthProvider({ children }) {
     logout,
     resetPassword,
     signInWithGoogle,
-    // Add other social providers here if needed, e.g., signInWithMicrosoft
+    getValidToken, // ✅ NEW: Expose the token caching function
   };
 
   return (
