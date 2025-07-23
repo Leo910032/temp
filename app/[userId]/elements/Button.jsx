@@ -1,4 +1,3 @@
-//app/[userId]/elements/Button.jsx - UNIFIED WITH DASHBOARD STYLING
 "use client"
 import { useContext, useEffect, useRef, useState, useMemo } from "react";
 import { HouseContext } from "../House";
@@ -13,6 +12,7 @@ import Image from "next/image";
 import IconDiv from "./IconDiv";
 import ButtonText from "./ButtonText";
 import "./style/3d.css";
+import { trackClick } from '@/lib/services/analyticsService'; // ✅ IMPORT the new analytics service
 
 // Special font component for the "New Mario" theme
 const SuperFont = ({ text, isHovered }) => {
@@ -28,10 +28,11 @@ const SuperFont = ({ text, isHovered }) => {
     ));
     return <div>{coloredText}</div>;
 };
+ 
 
 export default function Button({ linkData, content }) {
     // --- Data from Central Context ---
-    const { userData } = useContext(HouseContext);
+   const { userData } = useContext(HouseContext);
     const {
         btnType = 0,
         btnShadowColor = '#000',
@@ -41,35 +42,42 @@ export default function Button({ linkData, content }) {
         fontType = 0,
         themeTextColour = ''
     } = userData;
-    const { url } = linkData;
+    const { url, id: linkId, type: linkType } = linkData; // Destructure link data from props
 
-    // --- Component State ---
+  // State for styling and interaction
     const [modifierClass, setModifierClass] = useState("");
     const [modifierStyles, setModifierStyles] = useState({});
     const [specialElements, setSpecialElements] = useState(null);
-    const [accentColor, setAccentColor] = useState([]);
     const [isHovered, setIsHovered] = useState(false);
     const urlRef = useRef(null);
 
-    // --- Translations ---
+    // Translations
     const { t, isInitialized } = useTranslation();
     const copySuccessMessage = useMemo(() => 
         isInitialized ? t('public.links.copy_success') : 'Link copied!',
         [isInitialized, t]
     );
-
-    // --- Styling Objects ---
-    const [btnFontStyle, setBtnFontStyle] = useState({
-        color: ""
-    });
-
-    // --- Functions ---
+        // Styling object for font color
+    const [btnFontStyle, setBtnFontStyle] = useState({ color: "" });
+    // ✅ FIXED: Moved handleCopy inside the component to access props and state
     const handleCopy = () => {
+        if (!url) return;
         navigator.clipboard.writeText(makeValidUrl(url));
         toast.success(copySuccessMessage, {
             style: { border: '1px solid #6fc276', padding: '16px', color: '#6fc276' },
             iconTheme: { primary: '#6fc276', secondary: '#FFFAEE' },
         });
+    };
+       // ✅ NEW: Simplified click handler that calls the analytics service
+    const handleLinkClick = () => {
+        if (userData?.uid && linkId) {
+            trackClick(userData.uid, {
+                linkId: linkId,
+                linkTitle: content,
+                linkUrl: url,
+                linkType: linkType || 'custom',
+            });
+        }
     };
 
     function getRootNameFromUrl(linkUrl) {
@@ -81,12 +89,13 @@ export default function Button({ linkData, content }) {
         }
     }
 
-    // --- UNIFIED BUTTON STYLING SYSTEM (matches dashboard) ---
+  // --- UNIFIED BUTTON STYLING SYSTEM (matches dashboard) ---
     useEffect(() => {
         // Handle special themes first
         if (selectedTheme === "3D Blocks") {
             setModifierClass("relative after:absolute after:h-2 after:w-[100.5%] after:bg-black bg-white after:-bottom-2 after:left-[1px] after:skew-x-[57deg] after:ml-[2px] before:absolute before:h-[107%] before:w-3 before:bg-[currentColor] before:top-[1px] before:border-2 before:border-black before:-right-3 before:skew-y-[30deg] before:grid before:grid-rows-2 border-2 border-black inset-2 ml-[-20px] btn");
             
+            const getRootNameFromUrl = (linkUrl) => new URL(makeValidUrl(linkUrl)).hostname;
             const rootName = getRootNameFromUrl(url);
             let colors = ["#191414", "#14171A"];
             switch (String(getCompanyFromUrl(rootName)).toLowerCase()) {
@@ -96,14 +105,13 @@ export default function Button({ linkData, content }) {
                 case 'youtube': colors = ["#FF0000", "#FF0000"]; break;
                 case 'instagram': colors = ["#E1306C", "#833AB4"]; break;
             }
-            setAccentColor(colors);
             setModifierStyles({ backgroundColor: colors[0] || '', color: colors[1] || '' });
             setBtnFontStyle({ color: '#fff' });
             setSpecialElements(null);
             return;
         }
 
-        // ✅ UNIFIED STYLING SYSTEM - matches dashboard exactly
+        // UNIFIED STYLING SYSTEM
         let newModifierClass = "";
         let newModifierStyles = {
             backgroundColor: btnColor,
@@ -113,64 +121,18 @@ export default function Button({ linkData, content }) {
         let newSpecialElements = null;
 
         switch (btnType) {
-            // FILL buttons (0-2)
-            case 0:
-                newModifierClass = "bg-black";
-                newModifierStyles.backgroundColor = btnColor;
-                break;
-            case 1:
-                newModifierClass = "bg-black rounded-lg";
-                newModifierStyles.backgroundColor = btnColor;
-                break;
-            case 2:
-                newModifierClass = "bg-black rounded-3xl";
-                newModifierStyles.backgroundColor = btnColor;
-                break;
-
-            // OUTLINE buttons (3-5)
-            case 3:
-                newModifierClass = "border border-black";
-                newModifierStyles.backgroundColor = "transparent";
-                break;
-            case 4:
-                newModifierClass = "border border-black rounded-lg";
-                newModifierStyles.backgroundColor = "transparent";
-                break;
-            case 5:
-                newModifierClass = "border border-black rounded-3xl";
-                newModifierStyles.backgroundColor = "transparent";
-                break;
-
-            // HARD SHADOW buttons (6-8)
-            case 6:
-                newModifierClass = "bg-white border border-black";
-                newModifierStyles.backgroundColor = btnColor;
-                newModifierStyles.filter = `drop-shadow(4px 4px 0px ${btnShadowColor})`;
-                break;
-            case 7:
-                newModifierClass = "bg-white border border-black rounded-lg";
-                newModifierStyles.backgroundColor = btnColor;
-                newModifierStyles.filter = `drop-shadow(4px 4px 0px ${btnShadowColor})`;
-                break;
-            case 8:
-                newModifierClass = "bg-white border border-black rounded-3xl";
-                newModifierStyles.backgroundColor = btnColor;
-                newModifierStyles.filter = `drop-shadow(4px 4px 0px ${btnShadowColor})`;
-                break;
-
-            // SOFT SHADOW buttons (9-11) - FIXED to match dashboard
-            case 9:
-                newModifierClass = "bg-white shadow-[0_15px_30px_5px_rgb(0,0,0,0.5)]";
-                newModifierStyles.backgroundColor = btnColor;
-                break;
-            case 10:
-                newModifierClass = "bg-white rounded-lg shadow-[0_15px_30px_5px_rgb(0,0,0,0.5)]";
-                newModifierStyles.backgroundColor = btnColor;
-                break;
-            case 11:
-                newModifierClass = "bg-white rounded-3xl shadow-[0_15px_30px_5px_rgb(0,0,0,0.5)]";
-                newModifierStyles.backgroundColor = btnColor;
-                break;
+            case 0: newModifierClass = "bg-black"; break;
+            case 1: newModifierClass = "bg-black rounded-lg"; break;
+            case 2: newModifierClass = "bg-black rounded-3xl"; break;
+            case 3: newModifierClass = "border border-black"; newModifierStyles.backgroundColor = "transparent"; break;
+            case 4: newModifierClass = "border border-black rounded-lg"; newModifierStyles.backgroundColor = "transparent"; break;
+            case 5: newModifierClass = "border border-black rounded-3xl"; newModifierStyles.backgroundColor = "transparent"; break;
+            case 6: newModifierClass = "bg-white border border-black"; newModifierStyles.filter = `drop-shadow(4px 4px 0px ${btnShadowColor})`; break;
+            case 7: newModifierClass = "bg-white border border-black rounded-lg"; newModifierStyles.filter = `drop-shadow(4px 4px 0px ${btnShadowColor})`; break;
+            case 8: newModifierClass = "bg-white border border-black rounded-3xl"; newModifierStyles.filter = `drop-shadow(4px 4px 0px ${btnShadowColor})`; break;
+            case 9: newModifierClass = "bg-white shadow-[0_15px_30px_5px_rgb(0,0,0,0.5)]"; break;
+            case 10: newModifierClass = "bg-white rounded-lg shadow-[0_15px_30px_5px_rgb(0,0,0,0.5)]"; break;
+            case 11: newModifierClass = "bg-white rounded-3xl shadow-[0_15px_30px_5px_rgb(0,0,0,0.5)]"; break;
 
             // SPECIAL buttons (12-17)
             case 12:
@@ -239,14 +201,11 @@ export default function Button({ linkData, content }) {
                 break;
         }
 
+         
         setModifierClass(newModifierClass);
         setModifierStyles(newModifierStyles);
         setSpecialElements(newSpecialElements);
-
-        // Set font color for non-special buttons
-        if (![12, 13].includes(btnType)) {
-            setBtnFontStyle({ color: btnFontColor });
-        }
+        setBtnFontStyle({ color: btnFontColor });
 
     }, [btnType, btnColor, btnFontColor, btnShadowColor, selectedTheme, themeTextColour, url]);
 
@@ -312,6 +271,7 @@ export default function Button({ linkData, content }) {
             <Link 
                 href={makeValidUrl(url)} 
                 target="_blank" 
+                onClick={handleLinkClick} // ✅ THIS IS THE FIX
                 className="cursor-pointer flex gap-3 items-center min-h-10 py-3 px-3 flex-1 relative z-10"
             >
                 <IconDiv url={url} />

@@ -1,45 +1,39 @@
+// File: app/dashboard/general components/Preview.jsx
+
 "use client"
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import "../../styles/3d.css";
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchUserData } from '@/lib/fetch data/fetchUserData';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { fireApp } from '@/important/firebase';
-
 
 export default function Preview() {
     const { currentUser } = useAuth();
     const [username, setUsername] = useState("");
 
+    // This useEffect to get the username is fine, no changes needed here.
     useEffect(() => {
-        // If there's no user, clear the username and do nothing.
         if (!currentUser) {
             setUsername("");
             return;
         }
-
-        // Use onSnapshot for real-time updates to the username
         const docRef = doc(fireApp, "AccountData", currentUser.uid);
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists()) {
-                const data = docSnap.data();
-                setUsername(data?.username || "");
+                setUsername(docSnap.data()?.username || "");
             } else {
-                // This might happen for a new user before their document is created
                 setUsername("");
             }
         });
-
-        // Cleanup the listener when the component unmounts or the user changes
         return () => unsubscribe();
-
     }, [currentUser]);
-
+    
+    // The useEffect for the 3D tilt effect is also fine, no changes needed.
     useEffect(() => {
         const container = document.getElementById("container");
         const inner = document.getElementById("inner");
-
+        if (!container || !inner) return;
         // Mouse
         const mouse = {
             _x: 0,
@@ -125,7 +119,7 @@ export default function Preview() {
                         <div className="h-full w-full">
                             {username ? (
                                 <iframe
-                                    src={`http://localhost:3000/${username}`}
+                                    src={`/${username}?preview=true`}
                                     frameBorder="0"
                                     className='h-full bg-white w-full'
                                     title="User Profile Preview"

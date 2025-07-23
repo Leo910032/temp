@@ -1,9 +1,9 @@
 //app/dashboard/(dashboard pages)/settings/components/mini components/SocialCard.jsx - FIXED VERSION
 "use client"
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState, useMemo, useRef } from 'react';
 import { SocialContext } from '../SocialSetting';
 
-// ✅ FIXED: Use @dnd-kit instead of react-beautiful-dnd
+// ✅ Use @dnd-kit instead of react-beautiful-dnd
 import {
   DndContext,
   closestCenter,
@@ -20,30 +20,42 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 
-import SortableSocialElement from '../../elements/SortableSocialElement'; // We'll create this
+import SortableSocialElement from '../../elements/SortableSocialElement';
 import SocialElement from '../../elements/SocialElement';
 
 const SocialCard = ({ array }) => {
     const { setSocialsArray } = useContext(SocialContext);
     const [items, setItems] = useState([]);
     const [activeItem, setActiveItem] = useState(null);
+    const lastArrayRef = useRef(null);
 
+    // ✅ FIXED: Move sensors to component level (not inside useMemo)
+    const pointerSensor = useSensor(PointerSensor, {
+        activationConstraint: {
+            distance: 8, // Start drag after moving 8px
+        },
+    });
+    
+    const keyboardSensor = useSensor(KeyboardSensor, {
+        coordinateGetter: sortableKeyboardCoordinates,
+    });
+    
+    const sensors = useSensors(pointerSensor, keyboardSensor);
+
+    // ✅ OPTIMIZED: Only update items if array actually changed
     useEffect(() => {
-        console.log('🔄 SocialCard: Updating items from array:', array);
-        setItems(array || []); 
+        const arrayString = JSON.stringify(array || []);
+        
+        // Skip update if array hasn't actually changed
+        if (arrayString === lastArrayRef.current) {
+            console.log('🔄 SocialCard: Array unchanged, skipping update');
+            return;
+        }
+        
+        console.log('🔄 SocialCard: Updating items from array:', array?.length || 0, 'items');
+        setItems(array || []);
+        lastArrayRef.current = arrayString;
     }, [array]);
-
-    // Setup sensors for different input methods
-    const sensors = useSensors(
-        useSensor(PointerSensor, {
-            activationConstraint: {
-                distance: 8, // Start drag after moving 8px
-            },
-        }),
-        useSensor(KeyboardSensor, {
-            coordinateGetter: sortableKeyboardCoordinates,
-        })
-    );
 
     function handleDragStart(event) {
         const { active } = event;
@@ -74,25 +86,24 @@ const SocialCard = ({ array }) => {
             // Update local state immediately for smooth UX
             setItems(newItems);
             
+            // Update the tracking reference
+            lastArrayRef.current = JSON.stringify(newItems);
+            
             // Update parent state
             setSocialsArray(newItems);
         }
     }
 
-    // Render the drag overlay (clone of dragged item)
-    function renderDragOverlay() {
-        if (!activeItem) return null;
-        
-        return (
-            <SocialElement 
-                item={activeItem} 
-                index={-1} // Use -1 to indicate this is an overlay
-                isOverlay={true}
-            />
-        );
-    }
+    // ✅ OPTIMIZED: Memoized item IDs for SortableContext
+    const itemIds = useMemo(() => items.map(item => item.id), [items]);
 
+    // ✅ REDUCED: Less verbose logging
     console.log('🎨 SocialCard rendering with', items.length, 'items');
+
+    // ✅ EARLY RETURN: Don't render if no items
+    if (items.length === 0) {
+        return <div className="pl-4 text-sm text-gray-500 py-4">No social icons added yet</div>;
+    }
 
     return (
         <DndContext
@@ -102,7 +113,7 @@ const SocialCard = ({ array }) => {
             onDragEnd={handleDragEnd}
         >
             <SortableContext
-                items={items.map(item => item.id)}
+                items={itemIds}
                 strategy={verticalListSortingStrategy}
             >
                 <ul className='pl-4 grid gap-1'>
@@ -119,10 +130,17 @@ const SocialCard = ({ array }) => {
 
             {/* Drag overlay shows the dragged item */}
             <DragOverlay>
-                {renderDragOverlay()}
+                {activeItem && (
+                    <SocialElement 
+                        item={activeItem} 
+                        index={-1} // Use -1 to indicate this is an overlay
+                        isOverlay={true}
+                    />
+                )}
             </DragOverlay>
         </DndContext>
     );
 };
 
-export default SocialCard;
+// ✅ OPTIMIZED: Memoize the component to prevent unnecessary renders
+export default React.memo(SocialCard);

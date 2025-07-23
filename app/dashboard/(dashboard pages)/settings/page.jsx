@@ -25,7 +25,9 @@ export default function SettingsPage() {
     const debouncedSettings = useDebounce(settings, 2000);
     const isInitialLoad = useRef(true);
     const lastSavedData = useRef(null);
-    const updateInProgress = useRef(false); // ✅ ADD: Prevent concurrent updates
+    const isServerUpdate = useRef(false);
+    const fetchInProgress = useRef(false); // ✅ NEW: Prevent duplicate fetches
+    const hasInitialized = useRef(false); // ✅ NEW: Track if we've initialized
 
     const translations = useMemo(() => {
         if (!isInitialized) return {};
@@ -37,12 +39,18 @@ export default function SettingsPage() {
         };
     }, [t, isInitialized]);
 
-    // ✅ FIXED: Better data fetching with proper initialization
+    // ✅ FIXED: Deduplicated data fetching
     const fetchSettingsData = useCallback(async () => {
-        if (!currentUser || updateInProgress.current) return;
+        if (!currentUser || fetchInProgress.current) {
+            console.log('⏸️ Skipping fetch - no user or fetch in progress');
+            return;
+        }
         
+        fetchInProgress.current = true;
         setIsLoading(true);
+        
         try {
+            console.log('📥 Fetching settings data...');
             const data = await getSettingsData();
             
             // ✅ FIXED: Ensure all fields have proper defaults
@@ -56,42 +64,52 @@ export default function SettingsPage() {
                 metaData: data.metaData || { title: '', description: '' },
             };
             
+            // ✅ FIXED: Mark as server update and store reference
+            isServerUpdate.current = true;
             setSettings(normalizedData);
             lastSavedData.current = JSON.stringify(normalizedData);
+            hasInitialized.current = true;
+            
             console.log('✅ Settings data loaded from server:', normalizedData);
+            
+            // Reset server update flag after a brief delay
+            setTimeout(() => {
+                isServerUpdate.current = false;
+            }, 150); // ✅ INCREASED: Slightly longer delay
+            
         } catch (error) {
             console.error('Failed to fetch settings data:', error);
             toast.error(translations.loadingError);
         } finally {
             setIsLoading(false);
+            fetchInProgress.current = false;
         }
     }, [currentUser, translations.loadingError]);
 
-    // Load data on mount
+    // ✅ FIXED: Single initialization effect
     useEffect(() => {
-        if (currentUser && isInitialized) {
+        if (currentUser && isInitialized && !hasInitialized.current) {
+            console.log('🚀 Initializing settings page...');
             fetchSettingsData();
         }
     }, [currentUser, isInitialized, fetchSettingsData]);
 
-    // ✅ IMPROVED: Better save logic with concurrency control
+    // ✅ FIXED: Improved save logic
     const saveSettings = useCallback(async (dataToSave) => {
-        if (!currentUser || !dataToSave || updateInProgress.current) return;
+        if (!currentUser || !dataToSave || fetchInProgress.current) return;
         
-        // Check if data actually changed
+        // Check if data actually changed from last saved state
         const currentDataString = JSON.stringify(dataToSave);
         if (currentDataString === lastSavedData.current) {
             console.log('🔄 No changes detected, skipping save');
             return;
         }
         
-        updateInProgress.current = true;
         setIsSaving(true);
         
         try {
-            console.log('💾 Saving settings data...', dataToSave);
+            console.log('💾 Saving settings data...');
             
-            // Use the bulk update function
             const result = await updateSettingsData(dataToSave);
             
             // Update the last saved data reference
@@ -104,31 +122,52 @@ export default function SettingsPage() {
             console.error('❌ Save settings error:', error);
             toast.error(error.message || translations.error);
             
-            // ✅ FIXED: Reload data on error to sync state
-            await fetchSettingsData();
+            // Reload data on error to sync state
+            if (!fetchInProgress.current) {
+                await fetchSettingsData();
+            }
         } finally {
             setIsSaving(false);
-            updateInProgress.current = false;
         }
     }, [currentUser, translations.error, translations.saved, fetchSettingsData]);
 
-    // Handle debounced saves
+    // ✅ FIXED: Better debounced save logic
     useEffect(() => {
-        // Guard against saving on initial render
-        if (debouncedSettings === null || isInitialLoad.current) {
-            if (settings !== null) {
-                isInitialLoad.current = false;
-            }
+        // Guard 1: Don't save until we've initialized
+        if (!hasInitialized.current || debouncedSettings === null) {
             return;
         }
-        
-        saveSettings(debouncedSettings);
-    }, [debouncedSettings, saveSettings, settings]);
 
-    // ✅ IMPROVED: Better update function with duplicate prevention
+        // Guard 2: Don't save on initial load
+        if (isInitialLoad.current) {
+            isInitialLoad.current = false;
+            console.log('🔄 Initial load complete, ready for user changes');
+            return;
+        }
+
+        // Guard 3: Don't save if this update came from the server
+        if (isServerUpdate.current) {
+            console.log('🔄 Skipping save - server update detected');
+            return;
+        }
+
+        // Guard 4: Don't save if fetch is in progress
+        if (fetchInProgress.current) {
+            console.log('🔄 Skipping save - fetch in progress');
+            return;
+        }
+
+        // If we get here, it's a real user change that needs saving
+        console.log('💾 User change detected, saving settings...');
+        saveSettings(debouncedSettings);
+        
+    }, [debouncedSettings, saveSettings]);
+
+    // ✅ IMPROVED: Better update function with more guards
     const updateSettings = useCallback((fieldOrData, value) => {
-        if (updateInProgress.current) {
-            console.log('🔄 Update in progress, skipping:', fieldOrData);
+        // Don't update during server updates or fetches
+        if (isServerUpdate.current || fetchInProgress.current) {
+            console.log('🔄 Server update/fetch in progress, skipping client update');
             return;
         }
         
@@ -158,11 +197,12 @@ export default function SettingsPage() {
                 newSettings = { ...prev, [fieldOrData]: value };
             }
             
-            console.log('🔄 Settings updated:', fieldOrData, 'New value:', typeof fieldOrData === 'object' ? fieldOrData : value);
+            console.log('🔄 Settings updated:', fieldOrData);
             return newSettings;
         });
     }, []);
 
+    // ✅ IMPROVED: Memoized context value with stability
     const contextValue = useMemo(() => ({
         settings,
         updateSettings,
@@ -171,8 +211,8 @@ export default function SettingsPage() {
         refreshData: fetchSettingsData
     }), [settings, updateSettings, isSaving, isLoading, fetchSettingsData]);
 
-    // Loading state
-    if (!isInitialized || isLoading || !settings) {
+    // ✅ IMPROVED: Better loading conditions
+    if (!isInitialized || isLoading || !settings || !hasInitialized.current) {
         return (
             <div className="flex-1 py-2 flex flex-col max-h-full overflow-y-auto scroll-smooth">
                 <div className="p-6 text-center">
@@ -186,7 +226,7 @@ export default function SettingsPage() {
     return (
         <SettingsContext.Provider value={contextValue}>
             <div className="flex-1 py-2 flex flex-col max-h-full overflow-y-auto scroll-smooth">
-                {/* ✅ IMPROVED: Better save indicator */}
+                {/* Save indicator */}
                 {isSaving && (
                     <div className="fixed top-20 right-6 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
