@@ -1,23 +1,22 @@
 "use client"
 import Image from "next/image";
 import SocialCard from "./mini components/SocialCard";
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo, useContext } from "react";
 import React from "react";
 import Position from "../elements/Position";
-import Link from "next/link";
 import AddIconModal from "../elements/AddIconModal";
 import EditIconModal from "../elements/EditIconModal";
 import { useAuth } from "@/contexts/AuthContext";
-import { collection, doc, onSnapshot } from "firebase/firestore";
-import { fireApp } from "@/important/firebase";
-import { updateSocials } from "@/lib/update data/updateSocials";
 import { useTranslation } from "@/lib/translation/useTranslation";
+import { SettingsContext } from "../page";
 
 export const SocialContext = React.createContext();
 
 export default function SocialSetting() {
     const { t, isInitialized } = useTranslation();
     const { currentUser } = useAuth();
+    const { settings, updateSettings } = useContext(SettingsContext);
+    
     const [addIconModalOpen, setAddIconModalOpen] = useState(false);
     const [settingIconModalOpen, setSettingIconModalOpen] = useState({
         status: false,
@@ -25,8 +24,6 @@ export default function SocialSetting() {
         operation: 0,
         active: false
     });
-    const [socialsArray, setSocialsArray] = useState([]);
-    const [hasLoaded, setHasLoaded] = useState(false);
 
     const translations = useMemo(() => {
         if (!isInitialized) return {};
@@ -42,35 +39,34 @@ export default function SocialSetting() {
         };
     }, [t, isInitialized]);
 
-    useEffect(() => {
-        if (!currentUser) return;
-        const docRef = doc(collection(fireApp, "AccountData"), currentUser.uid);
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
-                setSocialsArray(docSnap.data().socials || []);
-            } else {
-                setSocialsArray([]);
+    // ✅ FIXED: Get socials from centralized settings state
+    const socialsArray = settings?.socials || [];
+
+    // ✅ FIXED: Update socials through centralized state with better logging
+    const setSocialsArray = (newSocials) => {
+        console.log('🔄 Updating socials array:', newSocials);
+        
+        if (typeof newSocials === 'function') {
+            // Handle functional updates
+            const updatedSocials = newSocials(socialsArray);
+            console.log('🔄 Functional update - Old:', socialsArray, 'New:', updatedSocials);
+            
+            // Only update if there's actually a change
+            if (JSON.stringify(socialsArray) !== JSON.stringify(updatedSocials)) {
+                updateSettings('socials', updatedSocials);
             }
-        }, (error) => {
-            console.error("Error fetching socials:", error);
-            setSocialsArray([]);
-        });
-        return () => {
-            if (unsubscribe && typeof unsubscribe === 'function') unsubscribe();
-        };
-    }, [currentUser]);
-
-    useEffect(() => {
-        if (!hasLoaded) {
-            setHasLoaded(true);
-            return;
+        } else {
+            // Handle direct updates
+            console.log('🔄 Direct update - Old:', socialsArray, 'New:', newSocials);
+            
+            // Only update if there's actually a change
+            if (JSON.stringify(socialsArray) !== JSON.stringify(newSocials)) {
+                updateSettings('socials', newSocials);
+            }
         }
-        if (currentUser) {
-            updateSocials(socialsArray, currentUser.uid);
-        }
-    }, [socialsArray, hasLoaded, currentUser]);
+    };
 
-    if (!isInitialized || !currentUser) {
+    if (!isInitialized || !currentUser || !settings) {
         return (
             <div className="w-full my-4 px-2 animate-pulse" id="Settings--SocialLinks">
                 <div className="flex items-center gap-3 py-4">
@@ -122,7 +118,6 @@ export default function SocialSetting() {
                         </div>
                         <Position />
                     </div>}
-                    {/* <Link className="text-btnPrimary active:text-btnPrimaryAlt underline mt-3" href={"/dashboard/analytics"}>See analytics</Link> */}
                 </div>
                 {addIconModalOpen && <AddIconModal />}
                 {settingIconModalOpen.status && <EditIconModal />}

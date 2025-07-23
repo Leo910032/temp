@@ -1,22 +1,16 @@
 "use client"
 import Image from "next/image";
 import SupportSwitch from "../elements/SupportSwitch";
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useMemo, useContext } from "react";
 import ChooseCause from "./ChooseCause";
-import { useAuth } from "@/contexts/AuthContext";
-import { fireApp } from "@/important/firebase";
-import { collection, doc, onSnapshot } from "firebase/firestore";
-import { updateSupportBanner, updateSupportBannerStatus } from "@/lib/update data/updateSocials";
 import { useTranslation } from "@/lib/translation/useTranslation";
+import { SettingsContext } from "../page";
 
 export const SupportContext = React.createContext();
 
 export default function SupportBanner() {
     const { t, isInitialized } = useTranslation();
-    const { currentUser } = useAuth();
-    const [showSupport, setShowSupport] = useState(null);
-    const [chosenGroup, setChosenGroup] = useState(null);
-    const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
+    const { settings, updateSettings } = useContext(SettingsContext);
 
     const translations = useMemo(() => {
         if (!isInitialized) return {};
@@ -26,43 +20,20 @@ export default function SupportBanner() {
         };
     }, [t, isInitialized]);
 
-    useEffect(() => {
-        if (chosenGroup === null || !currentUser || !hasInitiallyLoaded) return;
-        updateSupportBanner(chosenGroup, currentUser.uid);
-    }, [chosenGroup, currentUser, hasInitiallyLoaded]);
+    // ✅ FIXED: Get support banner data from centralized settings state
+    const showSupport = settings?.supportBannerStatus || false;
+    const chosenGroup = settings?.supportBanner || 0;
 
-    useEffect(() => {
-        if (showSupport === null || !currentUser || !hasInitiallyLoaded) return;
-        updateSupportBannerStatus(showSupport, currentUser.uid);
-    }, [showSupport, currentUser, hasInitiallyLoaded]);
+    // ✅ FIXED: Update through centralized state
+    const setShowSupport = (value) => {
+        updateSettings('supportBannerStatus', value);
+    };
 
-    useEffect(() => {
-        if (!currentUser) return;
-        const docRef = doc(collection(fireApp, "AccountData"), currentUser.uid);
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const { supportBanner, supportBannerStatus } = docSnap.data();
-                setChosenGroup(supportBanner !== undefined ? supportBanner : 0);
-                setShowSupport(supportBannerStatus !== undefined ? supportBannerStatus : false);
-            } else {
-                setChosenGroup(0);
-                setShowSupport(false);
-            }
-            if (!hasInitiallyLoaded) {
-                setHasInitiallyLoaded(true);
-            }
-        }, (error) => {
-            console.error("Error fetching support banner data:", error);
-            setChosenGroup(0);
-            setShowSupport(false);
-            if (!hasInitiallyLoaded) {
-                setHasInitiallyLoaded(true);
-            }
-        });
-        return () => unsubscribe();
-    }, [currentUser, hasInitiallyLoaded]);
+    const setChosenGroup = (value) => {
+        updateSettings('supportBanner', value);
+    };
 
-    if (!isInitialized || showSupport === null || !hasInitiallyLoaded) {
+    if (!isInitialized || !settings) {
         return (
             <div className="w-full my-4 px-2 animate-pulse">
                 <div className="flex items-center gap-3 py-4">

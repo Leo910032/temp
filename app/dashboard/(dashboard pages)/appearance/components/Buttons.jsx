@@ -111,11 +111,11 @@ export default function Buttons() {
             </section>
             <section className="flex gap-5 text-sm flex-col mb-10">
                 <span className="font-semibold">{translations.softShadow}</span>
-                <div className="items-center flex gap-5">
-                    <Button type={9} modifierClass={"bg-white shadow-[0_4px_4px_0_rgb(0,0,0,0.16)]"} onUpdate={handleUpdateTheme} disabled={isUpdating} />
-                    <Button type={10} modifierClass={"bg-white rounded-lg shadow-[0_4px_4px_0_rgb(0,0,0,0.16)]"} onUpdate={handleUpdateTheme} disabled={isUpdating} />
-                    <Button type={11} modifierClass={"bg-white rounded-3xl shadow-[0_4px_4px_0_rgb(0,0,0,0.16)]"} onUpdate={handleUpdateTheme} disabled={isUpdating} />
-                </div>
+   <div className="items-center flex gap-5">
+    <Button type={9} modifierClass={"bg-white shadow-[0_15px_30px_5px_rgb(0,0,0,0.5)]"} onUpdate={handleUpdateTheme} disabled={isUpdating} />
+    <Button type={10} modifierClass={"bg-white rounded-lg shadow-[0_15px_30px_5px_rgb(0,0,0,0.5)]"} onUpdate={handleUpdateTheme} disabled={isUpdating} />
+    <Button type={11} modifierClass={"bg-white rounded-3xl shadow-[0_15px_30px_5px_rgb(0,0,0,0.5)]"} onUpdate={handleUpdateTheme} disabled={isUpdating} />
+</div>
             </section>
             <section className="flex gap-5 text-sm flex-col mb-10">
                 <span className="font-semibold">{translations.special}</span>

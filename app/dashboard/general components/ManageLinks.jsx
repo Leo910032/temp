@@ -5,13 +5,10 @@ import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { useDebounce } from "@/LocalHooks/useDebounce";
-import { fireApp } from "@/important/firebase";
-import { collection, doc, onSnapshot } from "firebase/firestore";
 import { generateRandomId } from "@/lib/utilities";
 import { toast } from "react-hot-toast";
 import AddBtn from "../general elements/addBtn";
 import DraggableList from "./Drag";
-import { isEqual } from 'lodash'; // <-- Import isEqual for deep comparison
 
 // Create context to pass state down to child components
 export const ManageLinksContent = createContext(null);
@@ -22,13 +19,15 @@ export default function ManageLinks() {
     
     // --- State Management ---
     const [data, setData] = useState([]); // Live data state for the UI
-    const [isSaving, setIsSaving] = useState(false); // For showing a "Saving..." indicator
+    const [isSaving, setIsSaving] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
     
-    // --- Refs for Lifecycle Management (to prevent race conditions) ---
-    const isMounted = useRef(false);      // Becomes true after the first data fetch
-    const initialDataSnapshot = useRef(null); // Stores the first data fetched from Firestore
+    // --- Refs for Lifecycle Management ---
+    const hasInitiallyLoaded = useRef(false);
+    const lastSavedData = useRef(null); // Track what was last saved to prevent unnecessary saves
+    const isServerUpdate = useRef(false); // Flag to distinguish server updates from user changes
 
-    // Debounce state changes to group multiple quick edits into a single save operation
+    // Debounce state changes
     const debouncedData = useDebounce(data, 1500);
 
     // Memoize translations for performance
@@ -39,7 +38,8 @@ export default function ManageLinks() {
             emptyStateTitle: t('dashboard.links.empty_state.title'),
             emptyStateSubtitle: t('dashboard.links.empty_state.subtitle'),
             linksSaved: t('dashboard.links.saved_success') || "Links saved!",
-            savingError: t('dashboard.links.saved_error') || "Could not save links."
+            savingError: t('dashboard.links.saved_error') || "Could not save links.",
+            loadingError: t('dashboard.links.loading_error') || "Failed to load links."
         };
     }, [t, isInitialized]);
 
@@ -48,16 +48,59 @@ export default function ManageLinks() {
         const newLink = { id: generateRandomId(), title: "", url: "", urlKind: "", isActive: true, type: 1 };
         setData(prevData => [newLink, ...prevData]);
     };
+
     const addHeaderItem = () => {
         const newHeader = { id: generateRandomId(), title: "", isActive: true, type: 0 };
         setData(prevData => [newHeader, ...prevData]);
     };
     
+    // --- Server-Side Data Fetching (Replaces real-time listener) ---
+    const fetchLinksFromServer = useCallback(async () => {
+        if (!currentUser) return;
+        
+        try {
+            const token = await currentUser.getIdToken();
+            const response = await fetch('/api/user/links', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch links');
+            }
+
+            const result = await response.json();
+            const fetchedLinks = result.links || [];
+            
+            // Mark this as a server update to prevent saving loop
+            isServerUpdate.current = true;
+            setData(fetchedLinks);
+            lastSavedData.current = JSON.stringify(fetchedLinks);
+            
+            console.log('✅ Links loaded from server:', fetchedLinks.length);
+            
+        } catch (error) {
+            console.error("Error fetching links:", error);
+            toast.error(translations.loadingError);
+        } finally {
+            setIsLoading(false);
+            hasInitiallyLoaded.current = true;
+            // Reset the server update flag after a brief delay
+            setTimeout(() => {
+                isServerUpdate.current = false;
+            }, 100);
+        }
+    }, [currentUser, translations.loadingError]);
+
     // --- API Call to Save Data ---
     const saveLinksToServer = useCallback(async (linksToSave) => {
         if (!currentUser) return;
         
+        console.log('💾 Saving links to server...', linksToSave.length);
         setIsSaving(true);
+        
         try {
             const token = await currentUser.getIdToken();
             const response = await fetch('/api/user/links', {
@@ -74,64 +117,60 @@ export default function ManageLinks() {
                 throw new Error(errorData.error || translations.savingError);
             }
 
+            // Update the last saved data reference
+            lastSavedData.current = JSON.stringify(linksToSave);
             toast.success(translations.linksSaved);
+            console.log('✅ Links saved successfully');
+            
         } catch (error) {
-            console.error("Error saving links:", error);
+            console.error("❌ Error saving links:", error);
             toast.error(error.message);
         } finally {
             setIsSaving(false);
         }
     }, [currentUser, translations.linksSaved, translations.savingError]);
 
-    // --- Effect for FETCHING initial data ---
+    // --- Initial Data Fetch ---
     useEffect(() => {
-        if (!currentUser) {
+        if (currentUser && isInitialized) {
+            fetchLinksFromServer();
+        } else if (!currentUser) {
             setData([]);
-            isMounted.current = false;
-            initialDataSnapshot.current = null;
-            return;
+            setIsLoading(false);
+            hasInitiallyLoaded.current = false;
+            lastSavedData.current = null;
         }
+    }, [currentUser, isInitialized, fetchLinksFromServer]);
 
-        const docRef = doc(collection(fireApp, "AccountData"), currentUser.uid);
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            const fetchedLinks = docSnap.exists() ? docSnap.data().links || [] : [];
-            setData(fetchedLinks);
-            
-            // Only set the initial data snapshot ONCE when the component first mounts.
-            if (isMounted.current === false) {
-                initialDataSnapshot.current = fetchedLinks;
-                isMounted.current = true;
-            }
-        }, (error) => {
-            console.error("Error fetching links:", error);
-            isMounted.current = true; // Still mark as mounted even on error
-        });
-
-        return () => unsubscribe();
-    }, [currentUser]);
-
-    // --- Effect for SAVING data (Robust Logic) ---
+    // --- Auto-Save Effect (Fixed Logic) ---
     useEffect(() => {
-        // Guard 1: Don't run this effect until the component has mounted and fetched initial data.
-        if (!isMounted.current) {
+        // Guard 1: Don't save until initial data is loaded
+        if (!hasInitiallyLoaded.current) {
+            console.log('🔄 Skipping save - initial data not loaded yet');
             return;
         }
 
-        // Guard 2: Compare the current debounced data with the initial data snapshot.
-        // If they are identical, it means no meaningful change has been made by the user yet.
-        if (isEqual(debouncedData, initialDataSnapshot.current)) {
+        // Guard 2: Don't save if this update came from the server
+        if (isServerUpdate.current) {
+            console.log('🔄 Skipping save - server update detected');
             return;
         }
 
-        // If we pass the guards, it's a real user change that needs to be saved.
+        // Guard 3: Check if data actually changed from last saved state
+        const currentDataString = JSON.stringify(debouncedData);
+        if (currentDataString === lastSavedData.current) {
+            console.log('🔄 Skipping save - no changes detected');
+            return;
+        }
+
+        // If we get here, it's a real user change that needs saving
+        console.log('💾 User change detected, saving to server...');
         saveLinksToServer(debouncedData);
         
     }, [debouncedData, saveLinksToServer]);
 
-
     // --- Render Logic ---
     if (!isInitialized) {
-        // ... Return your loading skeleton component/JSX ...
         return (
             <div className="h-full flex-col gap-4 py-1 flex sm:px-2 px-1">
                 <div className="h-12 bg-gray-200 rounded-3xl animate-pulse"></div>
@@ -140,26 +179,47 @@ export default function ManageLinks() {
         );
     }
 
+    // ✅ IMPROVED: Context value with refresh function
+    const contextValue = useMemo(() => ({
+        setData,
+        data,
+        refreshData: fetchLinksFromServer, // Allow manual refresh
+        isSaving
+    }), [data, fetchLinksFromServer, isSaving]);
+
     return (
-        <ManageLinksContent.Provider value={{ setData, data }}>
+        <ManageLinksContent.Provider value={contextValue}>
             <div className="h-full flex-col gap-4 py-1 flex sm:px-2 px-1">
                 <AddBtn onAddItem={addLinkItem} />
+                
                 <div className="flex items-center gap-3 justify-center rounded-3xl cursor-pointer active:scale-95 hover:scale-[1.005] border hover:bg-black/5 w-fit text-sm p-3 mt-3" onClick={addHeaderItem}>
                     <Image src={"https://linktree.sirv.com/Images/icons/add.svg"} alt="add header" height={15} width={15} />
                     <span>{translations.addHeader}</span>
                 </div>
                 
+                {/* ✅ IMPROVED: Better saving indicator */}
                 {isSaving && (
-                    <div className="text-center text-sm text-gray-500 animate-pulse">Saving...</div>
+                    <div className="text-center text-sm text-blue-600 animate-pulse flex items-center justify-center gap-2">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                        Saving links...
+                    </div>
                 )}
 
-                {!isMounted.current && (
-                    <div className="text-center text-gray-500 py-10">Loading...</div>
+                {/* Loading state */}
+                {isLoading && (
+                    <div className="text-center text-gray-500 py-10 flex items-center justify-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                        Loading links...
+                    </div>
                 )}
                 
-                {isMounted.current && data.length > 0 && <DraggableList array={data} />}
+                {/* Links list */}
+                {!isLoading && hasInitiallyLoaded.current && data.length > 0 && (
+                    <DraggableList array={data} />
+                )}
 
-                {isMounted.current && data.length === 0 && (
+                {/* Empty state */}
+                {!isLoading && hasInitiallyLoaded.current && data.length === 0 && (
                     <div className="p-6 flex-col gap-4 flex items-center justify-center opacity-30">
                         <Image src={"https://linktree.sirv.com/Images/logo-icon.svg"} alt="logo" height={100} width={100} className="opacity-50 sm:w-24 w-16" />
                         <span className="text-center sm:text-base text-sm max-w-[15rem] font-semibold">{translations.emptyStateTitle}</span>

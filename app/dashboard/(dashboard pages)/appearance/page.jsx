@@ -16,9 +16,10 @@ import ChristmasAccessories from './components/ChristmasAccessories';
 
 export const AppearanceContext = createContext(null);
 
-// ✅ GLOBAL STATE: Store appearance data outside component to persist across navigations
+// ✅ GLOBAL STATE: Store appearance data AND last saved hash outside component
 let globalAppearanceCache = null;
 let globalDataFetched = false;
+let globalLastSavedHash = null; // ✅ FIXED: Store hash globally so it persists across navigations
 
 export default function AppearancePage() {
     const { currentUser } = useAuth();
@@ -30,9 +31,7 @@ export default function AppearancePage() {
     const [hasLoadError, setHasLoadError] = useState(false);
     const debouncedAppearance = useDebounce(appearance, 2000);
     const isInitialLoad = useRef(!globalDataFetched);
-    const lastSavedData = useRef(null);
-    const retryCount = useRef(0);
-    const maxRetries = useRef(3);
+    const componentId = useRef(Math.random().toString(36).substring(7)); // Unique ID for debugging
 
     const translations = useMemo(() => {
         if (!isInitialized) return {};
@@ -53,13 +52,43 @@ export default function AppearancePage() {
         };
     }, [t, isInitialized]);
 
+    // ✅ HELPER: Create deterministic hash from appearance data
+    const createAppearanceHash = useCallback((data) => {
+        if (!data) return null;
+        
+        const { 
+            links, socials, createdAt, email, uid, username, lastLogin, 
+            emailVerified, onboardingCompleted, isTestUser, testUserIndex,
+            sensitiveStatus, sensitivetype, supportBannerStatus, supportBanner,
+            metaData, socialPosition,
+            ...appearanceData 
+        } = data;
+        
+        // Remove undefined keys that might cause inconsistencies
+        const cleanedData = {};
+        Object.keys(appearanceData).forEach(key => {
+            if (key !== 'undefined' && appearanceData[key] !== undefined) {
+                cleanedData[key] = appearanceData[key];
+            }
+        });
+        
+        // Sort keys to ensure consistent hash
+        const sortedKeys = Object.keys(cleanedData).sort();
+        const sortedData = {};
+        sortedKeys.forEach(key => {
+            sortedData[key] = cleanedData[key];
+        });
+        
+        return JSON.stringify(sortedData);
+    }, []);
+
     // ✅ PERSISTENT DATA FETCH: Only fetch once and cache globally
     const fetchAppearanceData = useCallback(async (forceRefresh = false) => {
         if (!currentUser) return;
         
         // If we have cached data and not forcing refresh, use cache
         if (globalAppearanceCache && !forceRefresh) {
-            console.log('📋 Using cached appearance data');
+            console.log(`📋 [${componentId.current}] Using cached appearance data`);
             setAppearance(globalAppearanceCache);
             setIsLoading(false);
             return;
@@ -69,48 +98,34 @@ export default function AppearancePage() {
         setHasLoadError(false);
         
         try {
-            console.log('📥 Fetching fresh appearance data from server...');
+            console.log(`📥 [${componentId.current}] Fetching fresh appearance data from server...`);
             const data = await getAppearanceData();
             
-            // ✅ CACHE GLOBALLY: Store data globally so it persists across navigations
+            // ✅ CACHE GLOBALLY: Store data and hash globally
             globalAppearanceCache = data;
             globalDataFetched = true;
+            globalLastSavedHash = createAppearanceHash(data); // ✅ Store hash globally
             
             setAppearance(data);
-            lastSavedData.current = JSON.stringify(data);
-            retryCount.current = 0;
             
-            console.log('✅ Appearance data loaded and cached');
+            console.log(`✅ [${componentId.current}] Appearance data loaded and cached`);
             
         } catch (error) {
-            console.error('❌ Failed to fetch appearance data:', error);
+            console.error(`❌ [${componentId.current}] Failed to fetch appearance data:`, error);
             setHasLoadError(true);
-            
-            if (error.message.includes('quota-exceeded')) {
-                if (retryCount.current < maxRetries.current) {
-                    const delay = Math.min(1000 * Math.pow(2, retryCount.current), 30000);
-                    retryCount.current++;
-                    
-                    setTimeout(() => {
-                        fetchAppearanceData(true);
-                    }, delay);
-                }
-            }
         } finally {
             setIsLoading(false);
         }
-    }, [currentUser]);
+    }, [currentUser, createAppearanceHash]);
 
     // ✅ LOAD DATA: Only on first mount or when user changes
     useEffect(() => {
         if (currentUser && isInitialized) {
-            // If we don't have cached data, fetch it
             if (!globalAppearanceCache) {
-                console.log('🚀 Component mounted, fetching data...');
+                console.log(`🚀 [${componentId.current}] Component mounted, fetching data...`);
                 fetchAppearanceData();
             } else {
-                // Use cached data immediately
-                console.log('⚡ Component mounted, using cached data');
+                console.log(`⚡ [${componentId.current}] Component mounted, using cached data`);
                 setAppearance(globalAppearanceCache);
                 setIsLoading(false);
             }
@@ -118,18 +133,27 @@ export default function AppearancePage() {
         
         // Reset cache when user changes
         if (!currentUser) {
-            console.log('👋 User logged out, clearing cache');
+            console.log(`👋 [${componentId.current}] User logged out, clearing cache`);
             globalAppearanceCache = null;
             globalDataFetched = false;
+            globalLastSavedHash = null; // ✅ Clear hash too
             setAppearance(null);
             setIsLoading(false);
             isInitialLoad.current = true;
         }
-    }, [currentUser, isInitialized]);
+    }, [currentUser, isInitialized, fetchAppearanceData]);
 
-    // ✅ SAVE LOGIC: Update cache when saving
+    // ✅ IMPROVED SAVE LOGIC: Use global hash for change detection
     const saveAppearance = useCallback(async (dataToSave) => {
         if (!currentUser || !dataToSave || isSaving) return;
+        
+        const currentDataHash = createAppearanceHash(dataToSave);
+        
+        // ✅ FIXED: Compare with global hash that persists across navigations
+        if (currentDataHash === globalLastSavedHash) {
+            console.log(`🔄 [${componentId.current}] No changes detected, skipping save`);
+            return;
+        }
         
         const { 
             links, socials, createdAt, email, uid, username, lastLogin, 
@@ -139,7 +163,7 @@ export default function AppearancePage() {
             ...appearanceData 
         } = dataToSave;
         
-        // Remove any undefined keys that are causing issues
+        // Remove undefined keys
         const cleanedData = {};
         Object.keys(appearanceData).forEach(key => {
             if (key !== 'undefined' && appearanceData[key] !== undefined) {
@@ -147,21 +171,15 @@ export default function AppearancePage() {
             }
         });
         
-        const currentDataString = JSON.stringify(cleanedData);
-        if (currentDataString === lastSavedData.current) {
-            console.log('🔄 No changes detected, skipping save');
-            return;
-        }
-        
         setIsSaving(true);
-        console.log('💾 Saving appearance data...', Object.keys(cleanedData));
+        console.log(`💾 [${componentId.current}] Saving appearance data...`, Object.keys(cleanedData));
         
         try {
             const result = await updateAppearanceData(cleanedData);
             
-            // ✅ UPDATE CACHE: Keep cache in sync with saved data
+            // ✅ UPDATE GLOBAL CACHE AND HASH: Keep them in sync
             globalAppearanceCache = { ...globalAppearanceCache, ...cleanedData };
-            lastSavedData.current = currentDataString;
+            globalLastSavedHash = currentDataHash; // ✅ Update global hash
             
             toast.success(translations.saved, { 
                 duration: 2000,
@@ -169,27 +187,31 @@ export default function AppearancePage() {
                 position: 'bottom-right'
             });
             
-            console.log('✅ Appearance saved:', Object.keys(cleanedData));
+            console.log(`✅ [${componentId.current}] Appearance saved:`, Object.keys(cleanedData));
             
         } catch (error) {
-            console.error('❌ Save error:', error);
+            console.error(`❌ [${componentId.current}] Save error:`, error);
             toast.error(error.message || translations.error);
         } finally {
             setIsSaving(false);
         }
-    }, [currentUser, translations.saved, translations.error]);
+    }, [currentUser, translations.saved, translations.error, createAppearanceHash]);
 
-    // Handle debounced saves
+    // ✅ FIXED: Handle debounced saves with better initial load detection
     useEffect(() => {
-        if (debouncedAppearance === null || isInitialLoad.current) {
-            if (appearance !== null) {
+        // Skip if no data or still in initial load phase
+        if (debouncedAppearance === null) return;
+        
+        // Skip initial load - wait until cache is established
+        if (isInitialLoad.current) {
+            if (appearance !== null && globalLastSavedHash !== null) {
                 isInitialLoad.current = false;
-                console.log('🎯 Initial data load complete, enabling auto-save');
+                console.log(`🎯 [${componentId.current}] Initial data load complete, enabling auto-save`);
             }
             return;
         }
         
-        console.log('⏰ Debounced save triggered');
+        console.log(`⏰ [${componentId.current}] Debounced save triggered`);
         saveAppearance(debouncedAppearance);
     }, [debouncedAppearance, saveAppearance, appearance]);
 
@@ -201,15 +223,15 @@ export default function AppearancePage() {
             let newAppearance;
             if (typeof fieldOrData === 'object') {
                 newAppearance = { ...prev, ...fieldOrData };
-                console.log('🔄 Appearance bulk update:', Object.keys(fieldOrData));
+                console.log(`🔄 [${componentId.current}] Appearance bulk update:`, Object.keys(fieldOrData));
             } else {
                 // Skip undefined fields
                 if (fieldOrData === 'undefined' || fieldOrData === undefined) {
-                    console.warn('⚠️ Attempted to update undefined field, skipping');
+                    console.warn(`⚠️ [${componentId.current}] Attempted to update undefined field, skipping`);
                     return prev;
                 }
                 newAppearance = { ...prev, [fieldOrData]: value };
-                console.log('🔄 Appearance field updated:', fieldOrData, '→', value);
+                console.log(`🔄 [${componentId.current}] Appearance field updated:`, fieldOrData, '→', value);
             }
             
             // ✅ UPDATE CACHE: Keep global cache in sync

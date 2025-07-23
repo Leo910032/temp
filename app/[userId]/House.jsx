@@ -1,7 +1,7 @@
-// File: app/[userId]/House.jsx - FIXED VERSION
+// File: app/[userId]/House.jsx - OPTIMIZED VERSION
 
 "use client"
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { fireApp } from "@/important/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 import ProfilePic from "./components/ProfilePic";
@@ -20,8 +20,9 @@ export default function House({ initialUserData }) {
     const [showSensitiveWarning, setShowSensitiveWarning] = useState(initialUserData?.sensitiveStatus || false);
     const [isOnline, setIsOnline] = useState(true);
     const [retryCount, setRetryCount] = useState(0);
+    const updateInProgress = useRef(false); // ✅ ADD: Prevent update conflicts
 
-    // ✅ IMPROVED: Controlled real-time listener with error handling
+    // ✅ IMPROVED: Controlled real-time listener with better conflict prevention
     useEffect(() => {
         if (!userData?.uid) return;
 
@@ -34,15 +35,32 @@ export default function House({ initialUserData }) {
             docRef, 
             (docSnap) => {
                 if (docSnap.exists()) {
-                    // Update state with the latest data from Firestore
+                    // ✅ FIXED: Prevent update conflicts with settings page
+                    if (updateInProgress.current) {
+                        console.log('🔄 Update in progress, skipping real-time update');
+                        return;
+                    }
+
                     const latestData = docSnap.data();
                     console.log('✅ Real-time update received for public page');
                     
-                    setUserData(prevData => ({ 
-                        ...prevData, 
-                        ...latestData,
-                        uid: userData.uid // Preserve the UID
-                    }));
+                    setUserData(prevData => {
+                        // ✅ IMPROVED: Only update if data actually changed
+                        const currentDataString = JSON.stringify(prevData);
+                        const newDataString = JSON.stringify({ ...prevData, ...latestData, uid: userData.uid });
+                        
+                        if (currentDataString === newDataString) {
+                            console.log('🔄 No real changes in real-time update, skipping');
+                            return prevData;
+                        }
+
+                        console.log('🔄 Applying real-time update');
+                        return { 
+                            ...prevData, 
+                            ...latestData,
+                            uid: userData.uid // Preserve the UID
+                        };
+                    });
                     
                     // Reset retry count on successful update
                     if (retryCount > 0) {
@@ -103,13 +121,13 @@ export default function House({ initialUserData }) {
         };
     }, []);
 
-    // ✅ OPTIMIZED: Memoize context value to prevent unnecessary re-renders
+    // ✅ OPTIMIZED: Better memoized context value to prevent unnecessary re-renders
     const contextValue = useMemo(() => ({
         userData,
         setShowSensitiveWarning,
         isOnline,
         retryCount
-    }), [userData, isOnline, retryCount]);
+    }), [userData, isOnline, retryCount]); // Removed setShowSensitiveWarning from deps since it's stable
 
     // ✅ IMPROVED: Better error handling for missing data
     if (!userData) {

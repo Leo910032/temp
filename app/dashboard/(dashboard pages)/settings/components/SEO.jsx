@@ -1,20 +1,21 @@
 "use client"
 import { useDebounce } from "@/LocalHooks/useDebounce";
-import { fireApp } from "@/important/firebase";
 import { useAuth } from "@/contexts/AuthContext";
-import { updateCustomMetaData } from "@/lib/update data/updateSocials";
-import { collection, doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useContext, useRef } from "react";
 import { useTranslation } from "@/lib/translation/useTranslation";
+import { SettingsContext } from "../page";
 
 export default function SEO() {
     const { t, isInitialized } = useTranslation();
     const { currentUser } = useAuth();
-    const [metaTitle, setMetaTitle] = useState(null);
-    const [metaDescription, setMetaDescription] = useState(null);
-    const debounceMetaTitle = useDebounce(metaTitle, 500);
-    const debounceMetaDescription = useDebounce(metaDescription, 500);
+    const { settings, updateSettings } = useContext(SettingsContext);
+    
+    const [metaTitle, setMetaTitle] = useState("");
+    const [metaDescription, setMetaDescription] = useState("");
+    const debounceMetaTitle = useDebounce(metaTitle, 1000);
+    const debounceMetaDescription = useDebounce(metaDescription, 1000);
+    const isInitialLoad = useRef(true);
 
     const translations = useMemo(() => {
         if (!isInitialized) return {};
@@ -28,35 +29,30 @@ export default function SEO() {
         };
     }, [t, isInitialized]);
 
+    // ✅ FIXED: Get metadata from centralized settings state
     useEffect(() => {
-        if (metaTitle === null || metaDescription === null || !currentUser) return;
-        updateCustomMetaData({
-            title: metaTitle,
-            description: metaDescription,
-        }, currentUser.uid);
-    }, [debounceMetaTitle, debounceMetaDescription, currentUser, metaTitle, metaDescription]);
+        if (settings?.metaData) {
+            setMetaTitle(settings.metaData.title || "");
+            setMetaDescription(settings.metaData.description || "");
+        }
+    }, [settings?.metaData]);
 
+    // ✅ FIXED: Update through centralized state with debounced saves
     useEffect(() => {
-        if (!currentUser) return;
-        const docRef = doc(collection(fireApp, "AccountData"), currentUser.uid);
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const { metaData } = docSnap.data();
-                setMetaTitle(metaData?.title || "");
-                setMetaDescription(metaData?.description || "");
-            } else {
-                setMetaTitle("");
-                setMetaDescription("");
-            }
-        }, (error) => {
-            console.error("Error fetching metadata:", error);
-            setMetaTitle("");
-            setMetaDescription("");
-        });
-        return () => unsubscribe();
-    }, [currentUser]);
+        if (isInitialLoad.current) {
+            isInitialLoad.current = false;
+            return;
+        }
 
-    if (!isInitialized || !currentUser) {
+        if (metaTitle !== undefined && metaDescription !== undefined) {
+            updateSettings('metaData', {
+                title: metaTitle,
+                description: metaDescription,
+            });
+        }
+    }, [debounceMetaTitle, debounceMetaDescription, updateSettings]);
+
+    if (!isInitialized || !currentUser || !settings) {
         return (
             <div className="w-full my-4 px-2 animate-pulse" id="Settings--SEO">
                 <div className="flex items-center gap-3 py-4">
@@ -99,7 +95,7 @@ export default function SEO() {
                                         placeholder={translations.metaTitleLabel}
                                         className="placeholder-transparent font-semibold peer px-0 sm:text-base text-sm leading-[48px] placeholder:leading-[48px] rounded-xl block pt-6 pb-2 w-full bg-chalk text-black transition duration-75 ease-out !outline-none bg-transparent"
                                         type="text"
-                                        value={metaTitle || ""}
+                                        value={metaTitle}
                                         onChange={(e) => setMetaTitle(e.target.value)}
                                     />
                                     <label
@@ -120,7 +116,7 @@ export default function SEO() {
                                         placeholder={translations.metaDescriptionLabel}
                                         className="placeholder-transparent font-semibold peer px-0 sm:text-base text-sm leading-[48px] placeholder:leading-[48px] rounded-xl block pt-6 pb-2 w-full bg-chalk text-black transition duration-75 ease-out !outline-none bg-transparent"
                                         type="text"
-                                        value={metaDescription || ""}
+                                        value={metaDescription}
                                         onChange={(e) => setMetaDescription(e.target.value)}
                                     />
                                     <label
