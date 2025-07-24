@@ -1,49 +1,62 @@
-"use client"
+// File: app/components/NavComponents/ShareCard.jsx
 
-import React, { useContext, useEffect, useState } from "react";
+"use client"
+import React, { useContext, useEffect, useState, forwardRef } from "react"; // ✅ Import forwardRef
 import { NavContext } from "../General Components/NavBar";
 import Image from "next/image";
 import ShareLiElement from "./elements/ShareLiElement";
-import { ShareTo, addSocials, homePage, socialPage } from "@/lib/ShareCardArrays";
+import { ShareTo, addSocials, homePage, socialPage } from "@/lib/ShareCardArrays"; // ✅ Added socialPage
 import MLink from "./elements/MLink";
 import MyQrCode from "./elements/MyQrCode";
 
 export const ShareContext = React.createContext();
 
-export default function ShareCard() {
+// ✅ Wrap the component in forwardRef
+const ShareCard = forwardRef(function ShareCard(props, ref) {
     const [currentPage, setCurrentPage] = useState([{ page: "home" }]);
     const {
         showShareCard,
         setShowShareCard,
         myLink,
-        shareCardRef // Get the ref from NavContext
     } = useContext(NavContext);
 
     useEffect(() => {
-        setCurrentPage([{ page: "home" }]);
+        // Reset to home page whenever the card is shown
+        if (showShareCard) {
+            setCurrentPage([{ page: "home" }]);
+        }
     }, [showShareCard]);
 
     const handleClose = () => {
         setShowShareCard(false);
     }
 
-    const handleBack = () =>{
+    const handleBack = () => {
         setCurrentPage(currentPage.slice(0, -1));
+    }
+
+    // Don't render anything if the card is not shown, for performance
+    if (!showShareCard) {
+        return null;
     }
 
     return (
         <ShareContext.Provider value={{ currentPage, setCurrentPage, myLink }}>
-            {/* Apply the ref to this outer div that contains the entire ShareCard */}
-            <div className="absolute -right-4 w-fit h-fit -translate-y-[5px] px-4 pt-2 pb-5 overflow-hidden navCard" ref={shareCardRef}>
+            {/* ✅ This is now the outermost element with the ref attached */}
+            <div 
+                ref={ref} 
+                className="absolute -right-4 top-full mt-2 w-fit h-fit overflow-hidden navCard z-50"
+            >
                 <div
-                    className={`sm:w-[365px] w-[310px] bg-white rounded-3xl border-b flex flex-col gap-2 border-l p-2 border-r text-sm max-h-[70vh] overflow-y-auto ${showShareCard ? "enterCard" : "leaveCard"}`}
+                    className={`sm:w-[365px] w-[310px] bg-white rounded-3xl border flex flex-col gap-2 border-l p-2 border-r text-sm max-h-[70vh] overflow-y-auto ${showShareCard ? "enterCard" : "leaveCard"}`}
                     style={{ boxShadow: `0 5px 25px 1px rgba(0, 0, 0, .05)` }}
                 >
+                 
                     {currentPage[currentPage.length - 1].page === "home" && <>
                         <div className="grid grid-cols-[32px_auto_32px] items-center p-3">
-                            {currentPage[currentPage.length - 1].page === "home" ? <span></span> : <div className="cursor-pointer grid place-items-center h-md aspect-square rounded-lg active:border-black border border-transparent active:scale-90 hover:bg-black hover:bg-opacity-5" onClick={handleBack}><Image src={"https://linktree.sirv.com/Images/icons/arrow.svg"} className="rotate-90" alt="x" width={15} height={15} /></div>}
+                            <span></span>
                             <span className="font-semibold text-center">Share your Linktree</span>
-                            <div className="cursor-pointer grid place-items-center h-md aspect-square rounded-lg active:border-black border border-transparent active:scale-90 hover:bg-black hover:bg-opacity-5" onClick={handleClose}><Image src={"https://linktree.sirv.com/Images/icons/svgexport-40.svg"} alt="x" width={15} height={15} /></div>
+                            <div className="cursor-pointer grid place-items-center h-md aspect-square rounded-lg hover:bg-black/5" onClick={handleClose}><Image src={"https://linktree.sirv.com/Images/icons/svgexport-40.svg"} alt="x" width={15} height={15} /></div>
                         </div>
                         <p className="text-sm opacity-50 px-3">Get more visitors by sharing your Linktree everywhere.</p>
                         <div className="grid my-3">
@@ -61,8 +74,7 @@ export default function ShareCard() {
                                         height={18}
                                     />
                                 </ShareLiElement>
-                            ))
-                            }
+                            ))}
                         </div>
                         <MLink myUrl={myLink} />
                     </>}
@@ -166,5 +178,6 @@ export default function ShareCard() {
                 </div>
             </div>
         </ShareContext.Provider>
-    )
-}
+    );
+});
+export default ShareCard;

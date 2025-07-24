@@ -1,4 +1,4 @@
-//app/dashboard/(dashboard pages)/analytics/components/OverviewCards.jsx
+//app/dashboard/(dashboard pages)/analytics/components/OverviewCards.jsx - FIXED
 "use client"
 import Image from "next/image";
 import { useTranslation } from "@/lib/translation/useTranslation";
@@ -7,83 +7,157 @@ import { useMemo } from "react";
 export default function OverviewCards({ selectedPeriod, analytics, isConnected }) {
     const { t } = useTranslation();
 
-    // Helper to get date keys for calculation
-    const getDateKeysForPeriod = (period, dailyDataKeys) => {
+    // ✅ FIXED: Better date key generation logic
+    const getDateKeysForPeriod = (period) => {
         const today = new Date();
         const dates = [];
         let numDays = 0;
 
-        if (period === 'today') {
-            numDays = 1;
-        } else if (period === 'week') {
-            numDays = 7;
-        } else if (period === 'month') {
-            numDays = 30; // Approximation for month
+        switch (period) {
+            case 'today':
+                numDays = 1;
+                break;
+            case 'week':
+                numDays = 7;
+                break;
+            case 'month':
+                numDays = 30;
+                break;
+            default:
+                return []; // For 'all' period, we don't need date keys
         }
 
+        // Generate date keys for the specified number of days (including today)
         for (let i = 0; i < numDays; i++) {
             const date = new Date(today);
             date.setDate(today.getDate() - i);
-            dates.push(date.toISOString().split('T')[0]);
+            const dateKey = date.toISOString().split('T')[0];
+            dates.push(dateKey);
         }
+        
+        console.log(`📊 Generated ${dates.length} date keys for ${period}:`, dates);
         return dates;
     };
 
-    // Calculate aggregated data for the selected period dynamically using useMemo
+    // ✅ FIXED: Improved calculation logic with debugging
     const currentPeriodData = useMemo(() => {
         if (!analytics) {
-            return { views: 0, clicks: 0, previousViews: 0, previousClicks: 0, periodLabel: t('analytics.period.today') || 'Today' };
+            return { 
+                views: 0, 
+                clicks: 0, 
+                previousViews: 0, 
+                previousClicks: 0, 
+                periodLabel: t('analytics.period.today') || 'Today' 
+            };
         }
 
         const dailyViews = analytics.dailyViews || {};
         const dailyClicks = analytics.dailyClicks || {};
-        const today = new Date();
+        
+        console.log('📊 Analytics data available:', {
+            totalViews: analytics.totalViews,
+            totalClicks: analytics.totalClicks,
+            dailyViewsKeys: Object.keys(dailyViews),
+            dailyClicksKeys: Object.keys(dailyClicks),
+            selectedPeriod
+        });
 
         let currentViews = 0;
         let currentClicks = 0;
         let previousViews = 0;
         let previousClicks = 0;
-        let periodLabel = t('analytics.period.all_time') || 'All Time'; // Default for 'all'
+        let periodLabel = t('analytics.period.all_time') || 'All Time';
 
         if (selectedPeriod === 'all') {
             currentViews = analytics.totalViews || 0;
             currentClicks = analytics.totalClicks || 0;
             periodLabel = t('analytics.period.all_time') || 'All Time';
-        } else {
-            const periodKeys = getDateKeysForPeriod(selectedPeriod);
             
-            // Sum views and clicks for the current period
-            for (const dateKey of periodKeys) {
-                currentViews += dailyViews[dateKey] || 0;
-                currentClicks += dailyClicks[dateKey] || 0;
+            console.log('📊 All time data:', { currentViews, currentClicks });
+        } else {
+            // Get date keys for current period
+            const currentPeriodKeys = getDateKeysForPeriod(selectedPeriod);
+            
+            // ✅ FIXED: Calculate current period totals
+            currentPeriodKeys.forEach(dateKey => {
+                const viewsForDate = dailyViews[dateKey] || 0;
+                const clicksForDate = dailyClicks[dateKey] || 0;
+                currentViews += viewsForDate;
+                currentClicks += clicksForDate;
+                
+                if (viewsForDate > 0 || clicksForDate > 0) {
+                    console.log(`📊 ${dateKey}: ${viewsForDate} views, ${clicksForDate} clicks`);
+                }
+            });
+
+            // ✅ FIXED: Calculate previous period for comparison
+            const today = new Date();
+            let periodLength = 0;
+            
+            switch (selectedPeriod) {
+                case 'today':
+                    periodLength = 1;
+                    break;
+                case 'week':
+                    periodLength = 7;
+                    break;
+                case 'month':
+                    periodLength = 30;
+                    break;
             }
 
-            // Calculate for previous period
-            let prevPeriodLengthDays = 0;
-            if (selectedPeriod === 'today') prevPeriodLengthDays = 1;
-            if (selectedPeriod === 'week') prevPeriodLengthDays = 7;
-            if (selectedPeriod === 'month') prevPeriodLengthDays = 30;
-
-            for (let i = prevPeriodLengthDays; i < prevPeriodLengthDays * 2; i++) {
+            // Generate previous period keys
+            const previousPeriodKeys = [];
+            for (let i = periodLength; i < periodLength * 2; i++) {
                 const date = new Date(today);
                 date.setDate(today.getDate() - i);
                 const dateKey = date.toISOString().split('T')[0];
+                previousPeriodKeys.push(dateKey);
+            }
+
+            // Calculate previous period totals
+            previousPeriodKeys.forEach(dateKey => {
                 previousViews += dailyViews[dateKey] || 0;
                 previousClicks += dailyClicks[dateKey] || 0;
-            }
-            periodLabel = t(`analytics.period.${selectedPeriod}`) || selectedPeriod.charAt(0).toUpperCase() + selectedPeriod.slice(1);
+            });
+
+            // Set period label
+            const periodLabels = {
+                today: t('analytics.period.today') || 'Today',
+                week: t('analytics.period.week') || 'This Week',
+                month: t('analytics.period.month') || 'This Month'
+            };
+            periodLabel = periodLabels[selectedPeriod] || selectedPeriod;
+
+            console.log(`📊 ${selectedPeriod} calculation:`, {
+                currentViews,
+                currentClicks,
+                previousViews,
+                previousClicks,
+                currentPeriodKeys,
+                previousPeriodKeys
+            });
         }
 
-        return { views: currentViews, clicks: currentClicks, previousViews, previousClicks, periodLabel };
+        return { 
+            views: currentViews, 
+            clicks: currentClicks, 
+            previousViews, 
+            previousClicks, 
+            periodLabel 
+        };
     }, [analytics, selectedPeriod, t]);
 
+    // ✅ IMPROVED: Better change indicator calculation
     const getChangeIndicator = (current, previous) => {
         if (previous === 0 && current === 0) return null;
         if (previous === 0 && current > 0) {
-             return (
-                <div className={`flex items-center text-xs text-green-600`}>
-                  
-                
+            return (
+                <div className="flex items-center text-xs text-green-600">
+                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                    </svg>
+                    New!
                 </div>
             );
         }
@@ -93,11 +167,22 @@ export default function OverviewCards({ selectedPeriod, analytics, isConnected }
         
         return (
             <div className={`flex items-center text-xs ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-               
-                {Math.abs(change).toFixed(1)}%
+                <svg className={`w-3 h-3 mr-1 ${isPositive ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+                {isPositive ? '+' : ''}{Math.abs(change).toFixed(1)}%
             </div>
         );
     };
+
+    // ✅ ADDED: Debug info for development
+    if (process.env.NODE_ENV === 'development') {
+        console.log('📊 OverviewCards render:', {
+            selectedPeriod,
+            currentPeriodData,
+            analyticsKeys: analytics ? Object.keys(analytics) : 'null'
+        });
+    }
 
     return (
         <div className="w-full"> 

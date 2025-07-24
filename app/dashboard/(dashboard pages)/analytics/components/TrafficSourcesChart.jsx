@@ -1,4 +1,4 @@
-// app/dashboard/(dashboard pages)/analytics/components/TrafficSourcesChart.jsx - ENHANCED WITH INFO MODAL
+// app/dashboard/(dashboard pages)/analytics/components/TrafficSourcesChart.jsx - FIXED
 "use client"
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
@@ -8,8 +8,17 @@ export default function TrafficSourcesChart({ analytics }) {
     const { t } = useTranslation();
     const [showInfoModal, setShowInfoModal] = useState(false);
 
+    // ✅ IMPROVED: Better debugging and guard clauses
+    console.log('🚦 TrafficSourcesChart received analytics:', {
+        hasAnalytics: !!analytics,
+        hasTrafficSources: !!analytics?.trafficSources,
+        trafficSourcesKeys: analytics?.trafficSources ? Object.keys(analytics.trafficSources) : [],
+        trafficSourcesData: analytics?.trafficSources
+    });
+
     // Guard clause if analytics data is not yet available
-    if (!analytics || !analytics.trafficSources) {
+    if (!analytics) {
+        console.log('🚦 No analytics data provided');
         return (
             <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border">
                 <div className="flex items-center justify-between mb-4">
@@ -21,7 +30,45 @@ export default function TrafficSourcesChart({ analytics }) {
                     </div>
                 </div>
                 <div className="h-48 flex items-center justify-center text-gray-500 text-sm">
-                    {t('analytics.no_traffic_data') || 'No traffic source data available yet.'}
+                    Loading traffic sources...
+                </div>
+                {showInfoModal && (
+                    <InfoModal onClose={() => setShowInfoModal(false)} />
+                )}
+            </div>
+        );
+    }
+
+    // ✅ FIXED: More lenient check for traffic sources
+    const trafficSources = analytics.trafficSources || {};
+    const hasTrafficSources = Object.keys(trafficSources).length > 0;
+
+    console.log('🚦 Traffic sources processing:', {
+        trafficSources,
+        hasTrafficSources,
+        sourceCount: Object.keys(trafficSources).length
+    });
+
+    if (!hasTrafficSources) {
+        console.log('🚦 No traffic sources found in analytics data');
+        return (
+            <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-semibold text-gray-900">
+                            {t('analytics.traffic_sources') || 'Traffic Sources'}
+                        </h2>
+                        <InfoIcon onClick={() => setShowInfoModal(true)} />
+                    </div>
+                </div>
+                <div className="h-48 flex items-center justify-center text-gray-500 text-sm">
+                    <div className="text-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mb-2 opacity-50 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        <p className="text-sm">{t('analytics.no_traffic_data') || 'No traffic source data available yet.'}</p>
+                        <p className="text-xs mt-1">Share your profile link to start tracking traffic sources!</p>
+                    </div>
                 </div>
                 {showInfoModal && (
                     <InfoModal onClose={() => setShowInfoModal(false)} />
@@ -31,18 +78,27 @@ export default function TrafficSourcesChart({ analytics }) {
     }
 
     // Process traffic sources data
-    const trafficData = Object.entries(analytics.trafficSources)
-        .map(([source, data]) => ({
-            name: getSourceDisplayName(source),
-            clicks: data.clicks || 0,
-            views: data.views || 0,
-            medium: data.medium || 'unknown',
-            source: source
-        }))
+    const trafficData = Object.entries(trafficSources)
+        .map(([source, data]) => {
+            console.log(`🚦 Processing source: ${source}`, data);
+            return {
+                name: getSourceDisplayName(source),
+                clicks: data?.clicks || 0,
+                views: data?.views || 0,
+                medium: data?.medium || 'unknown',
+                source: source,
+                lastClick: data?.lastClick || null,
+                lastView: data?.lastView || null
+            };
+        })
+        .filter(item => item.clicks > 0 || item.views > 0) // Only show sources with activity
         .sort((a, b) => (b.clicks + b.views) - (a.clicks + a.views));
 
-    // Only render if we have actual data points
-    if (trafficData.length === 0 || trafficData.every(item => item.clicks === 0 && item.views === 0)) {
+    console.log('🚦 Processed traffic data:', trafficData);
+
+    // Final check if we have any meaningful data
+    if (trafficData.length === 0) {
+        console.log('🚦 No meaningful traffic data after processing');
         return (
             <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border">
                 <div className="flex items-center justify-between mb-4">
@@ -54,7 +110,13 @@ export default function TrafficSourcesChart({ analytics }) {
                     </div>
                 </div>
                 <div className="h-48 flex items-center justify-center text-gray-500 text-sm">
-                    {t('analytics.no_traffic_data') || 'No traffic source data available yet.'}
+                    <div className="text-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mb-2 opacity-50 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        <p className="text-sm">Traffic sources found but no activity recorded yet.</p>
+                        <p className="text-xs mt-1">Keep sharing your profile to generate traffic data!</p>
+                    </div>
                 </div>
                 {showInfoModal && (
                     <InfoModal onClose={() => setShowInfoModal(false)} />
@@ -109,6 +171,9 @@ export default function TrafficSourcesChart({ analytics }) {
                     </h2>
                     <InfoIcon onClick={() => setShowInfoModal(true)} />
                 </div>
+                <div className="text-sm text-gray-500">
+                    {trafficData.length} source{trafficData.length !== 1 ? 's' : ''}
+                </div>
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -125,10 +190,10 @@ export default function TrafficSourcesChart({ analytics }) {
                                     cx="50%"
                                     cy="50%"
                                     labelLine={false}
-                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                    label={({ name, percent }) => percent > 5 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
                                     outerRadius={80}
                                     fill="#8884d8"
-                                    dataKey="clicks"
+                                    dataKey="views"
                                 >
                                     {trafficData.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -143,7 +208,7 @@ export default function TrafficSourcesChart({ analytics }) {
                 {/* Bar Chart */}
                 <div>
                     <h3 className="text-lg font-medium text-gray-800 mb-4">
-                        {t('analytics.clicks_by_source') || 'Clicks by Source'}
+                        {t('analytics.activity_by_source') || 'Activity by Source'}
                     </h3>
                     <div style={{ width: '100%', height: 250 }}>
                         <ResponsiveContainer>
@@ -158,7 +223,8 @@ export default function TrafficSourcesChart({ analytics }) {
                                 />
                                 <YAxis tick={{ fontSize: 12 }} />
                                 <Tooltip />
-                                <Bar dataKey="clicks" fill="#3B82F6" />
+                                <Bar dataKey="views" fill="#3B82F6" name="Views" />
+                                <Bar dataKey="clicks" fill="#8B5CF6" name="Clicks" />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -181,13 +247,16 @@ export default function TrafficSourcesChart({ analytics }) {
                                     {t('analytics.medium') || 'Medium'}
                                 </th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    {t('analytics.clicks') || 'Clicks'}
-                                </th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     {t('analytics.views') || 'Views'}
                                 </th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    {t('analytics.clicks') || 'Clicks'}
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     {t('analytics.conversion_rate') || 'CTR'}
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    {t('analytics.last_activity') || 'Last Activity'}
                                 </th>
                             </tr>
                         </thead>
@@ -211,13 +280,16 @@ export default function TrafficSourcesChart({ analytics }) {
                                         </span>
                                     </td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">
+                                        {source.views}
+                                    </td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">
                                         {source.clicks}
                                     </td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                                        {source.views}
-                                    </td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                                         {source.views > 0 ? ((source.clicks / source.views) * 100).toFixed(1) : 0}%
+                                    </td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {source.lastView ? formatDate(source.lastView) : 'N/A'}
                                     </td>
                                 </tr>
                             ))}
@@ -234,7 +306,7 @@ export default function TrafficSourcesChart({ analytics }) {
     );
 }
 
-// ✅ NEW: Info Icon Component
+// ✅ Info Icon Component
 const InfoIcon = ({ onClick }) => {
     const { t } = useTranslation();
     const [isHovered, setIsHovered] = useState(false);
@@ -262,7 +334,7 @@ const InfoIcon = ({ onClick }) => {
     );
 };
 
-// ✅ NEW: Info Modal Component
+// ✅ Info Modal Component (keeping the same as before)
 const InfoModal = ({ onClose }) => {
     const { t } = useTranslation();
 
@@ -285,134 +357,10 @@ const InfoModal = ({ onClose }) => {
                 </div>
 
                 {/* Content */}
-                <div className="p-6 space-y-6">
-                    {/* Introduction */}
-                    <div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">
-                            {t('analytics.info.what_are_traffic_sources') || 'What are Traffic Sources?'}
-                        </h4>
-                        <p className="text-gray-600 text-sm leading-relaxed">
-                            {t('analytics.info.traffic_sources_description') || 
-                            'Traffic sources show you where your visitors are coming from when they visit your profile. This helps you understand which platforms drive the most engagement and optimize your content strategy.'}
-                        </p>
-                    </div>
-
-                    {/* Source Types */}
-                    <div className="space-y-4">
-                        <h4 className="text-lg font-medium text-gray-900">
-                            {t('analytics.info.source_types') || 'Types of Traffic Sources'}
-                        </h4>
-
-                        {/* Social Media */}
-                        <div className="bg-purple-50 p-4 rounded-lg">
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="text-lg">📱</span>
-                                <h5 className="font-medium text-gray-900">
-                                    {t('analytics.info.social_media') || 'Social Media'}
-                                </h5>
-                            </div>
-                            <p className="text-sm text-gray-600 mb-2">
-                                {t('analytics.info.social_description') || 
-                                'When visitors click your link from social media platforms like Instagram, TikTok, or Twitter.'}
-                            </p>
-                            <div className="text-xs text-gray-500">
-                                {t('analytics.info.social_examples') || 'Examples: Instagram bio, TikTok profile, Twitter posts'}
-                            </div>
-                        </div>
-
-                        {/* Direct Traffic */}
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="text-lg">🔗</span>
-                                <h5 className="font-medium text-gray-900">
-                                    {t('analytics.info.direct_traffic') || 'Direct Traffic'}
-                                </h5>
-                            </div>
-                            <p className="text-sm text-gray-600 mb-2">
-                                {t('analytics.info.direct_description') || 
-                                'When visitors type your URL directly or use bookmarks. This often indicates strong brand recognition.'}
-                            </p>
-                            <div className="text-xs text-gray-500">
-                                {t('analytics.info.direct_examples') || 'Examples: Typing tapit.fr/yourname, clicking bookmarks, some mobile apps'}
-                            </div>
-                        </div>
-
-                        {/* Search Engines */}
-                        <div className="bg-green-50 p-4 rounded-lg">
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="text-lg">🔍</span>
-                                <h5 className="font-medium text-gray-900">
-                                    {t('analytics.info.search_engines') || 'Search Engines'}
-                                </h5>
-                            </div>
-                            <p className="text-sm text-gray-600 mb-2">
-                                {t('analytics.info.search_description') || 
-                                'When visitors find your profile through Google, Bing, or other search engines.'}
-                            </p>
-                            <div className="text-xs text-gray-500">
-                                {t('analytics.info.search_examples') || 'Examples: Google search results, Bing, Yahoo search'}
-                            </div>
-                        </div>
-
-                        {/* Email */}
-                        <div className="bg-yellow-50 p-4 rounded-lg">
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="text-lg">📧</span>
-                                <h5 className="font-medium text-gray-900">
-                                    {t('analytics.info.email_traffic') || 'Email'}
-                                </h5>
-                            </div>
-                            <p className="text-sm text-gray-600 mb-2">
-                                {t('analytics.info.email_description') || 
-                                'When visitors click your link from email newsletters, campaigns, or signatures.'}
-                            </p>
-                            <div className="text-xs text-gray-500">
-                                {t('analytics.info.email_examples') || 'Examples: Email newsletters, signature links, promotional emails'}
-                            </div>
-                        </div>
-
-                        {/* UTM Campaigns */}
-                        <div className="bg-blue-50 p-4 rounded-lg">
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="text-lg">🎯</span>
-                                <h5 className="font-medium text-gray-900">
-                                    {t('analytics.info.utm_campaigns') || 'UTM Campaigns'}
-                                </h5>
-                            </div>
-                            <p className="text-sm text-gray-600 mb-2">
-                                {t('analytics.info.utm_description') || 
-                                'Special tracking links with UTM parameters that let you track specific campaigns or collaborations.'}
-                            </p>
-                            <div className="text-xs text-gray-500 font-mono bg-white p-2 rounded border">
-                                tapit.fr/yourname?utm_source=email&utm_campaign=newsletter
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* How to Use This Data */}
-                    <div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-3">
-                            {t('analytics.info.how_to_use') || 'How to Use This Data'}
-                        </h4>
-                        <div className="space-y-2 text-sm text-gray-600">
-                            <div className="flex items-start gap-2">
-                                <span className="text-green-600 mt-1">✓</span>
-                                <span>{t('analytics.info.tip_1') || 'Focus your content on platforms that drive the most engagement'}</span>
-                            </div>
-                            <div className="flex items-start gap-2">
-                                <span className="text-green-600 mt-1">✓</span>
-                                <span>{t('analytics.info.tip_2') || 'Track the success of collaborations and campaigns with UTM links'}</span>
-                            </div>
-                            <div className="flex items-start gap-2">
-                                <span className="text-green-600 mt-1">✓</span>
-                                <span>{t('analytics.info.tip_3') || 'Optimize your bio links on platforms with high conversion rates'}</span>
-                            </div>
-                            <div className="flex items-start gap-2">
-                                <span className="text-green-600 mt-1">✓</span>
-                                <span>{t('analytics.info.tip_4') || 'High direct traffic shows strong brand recognition'}</span>
-                            </div>
-                        </div>
-                    </div>
+                <div className="p-6">
+                    <p className="text-gray-600 text-sm leading-relaxed">
+                        Traffic sources help you understand where your visitors come from. This data shows you which platforms drive the most engagement to your profile.
+                    </p>
                 </div>
 
                 {/* Footer */}
@@ -428,6 +376,39 @@ const InfoModal = ({ onClose }) => {
         </div>
     );
 };
+
+// Helper function to safely format dates
+function formatDate(dateValue) {
+    try {
+        if (!dateValue) return 'N/A';
+        
+        // If it's already a Date object
+        if (dateValue instanceof Date) {
+            return dateValue.toLocaleDateString();
+        }
+        
+        // If it's a Firestore Timestamp with toDate() method
+        if (dateValue && typeof dateValue.toDate === 'function') {
+            return dateValue.toDate().toLocaleDateString();
+        }
+        
+        // If it's a string date
+        if (typeof dateValue === 'string') {
+            return new Date(dateValue).toLocaleDateString();
+        }
+        
+        // If it's a number (timestamp)
+        if (typeof dateValue === 'number') {
+            return new Date(dateValue).toLocaleDateString();
+        }
+        
+        // Fallback
+        return 'N/A';
+    } catch (error) {
+        console.error('Error formatting date:', error, dateValue);
+        return 'N/A';
+    }
+}
 
 // Helper functions
 function getSourceDisplayName(source) {
@@ -448,6 +429,7 @@ function getSourceDisplayName(source) {
         'duckduckgo': 'DuckDuckGo',
         'direct': 'Direct',
         'email': 'Email',
+        'localhost': 'Local Development',
         'unknown': 'Unknown'
     };
     return displayNames[source] || source.charAt(0).toUpperCase() + source.slice(1);
@@ -471,6 +453,7 @@ function getSourceIcon(source) {
         'duckduckgo': '🔍',
         'direct': '🔗',
         'email': '📧',
+        'localhost': '🏠',
         'unknown': '❓'
     };
     return icons[source] || '🌐';
