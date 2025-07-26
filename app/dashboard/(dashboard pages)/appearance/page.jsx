@@ -1,10 +1,13 @@
 "use client"
-import React, { createContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDebounce } from '@/LocalHooks/useDebounce';
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { toast } from 'react-hot-toast';
 import { updateAppearanceData, getAppearanceData } from '@/lib/services/appearanceService';
+
+// ✅ FIXED: Import context from separate file
+import { AppearanceContext } from './AppearanceContext';
 
 // Import all the child components for this page
 import ProfileCard from './components/ProfileCard';
@@ -14,14 +17,12 @@ import Buttons from './components/Buttons';
 import FontsOptions from './components/FontsOptions';
 import ChristmasAccessories from './components/ChristmasAccessories';
 
-export const AppearanceContext = createContext(null);
-
 // ✅ GLOBAL STATE: Store appearance data AND last saved hash outside component
 let globalAppearanceCache = null;
 let globalDataFetched = false;
 let globalLastSavedHash = null; // ✅ FIXED: Store hash globally so it persists across navigations
 
-export default function AppearancePage() {
+function AppearancePage() {
     const { currentUser } = useAuth();
     const { t, isInitialized } = useTranslation();
     
@@ -337,3 +338,6 @@ export default function AppearancePage() {
         </AppearanceContext.Provider>
     );
 }
+
+// ✅ FIXED: Only export the default component function
+export default AppearancePage;
