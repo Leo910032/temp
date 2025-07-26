@@ -2,7 +2,7 @@
 import { useMemo, useContext } from "react";
 import { useTranslation } from "@/lib/translation/useTranslation";
 import SelectFonts from "../elements/SelectFonts";
-import { AppearanceContext } from "../page";
+import { AppearanceContext } from "../AppearanceContext";
 
 export default function FontsOptions() {
     const { appearance } = useContext(AppearanceContext);

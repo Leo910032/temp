@@ -4,7 +4,7 @@ import SupportSwitch from "../elements/SupportSwitch";
 import React, { useMemo, useContext } from "react";
 import ChooseCause from "./ChooseCause";
 import { useTranslation } from "@/lib/translation/useTranslation";
-import { SettingsContext } from "../page";
+import { SettingsContext } from "../SettingsContext";
 
 export const SupportContext = React.createContext();
 

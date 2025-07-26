@@ -1,6 +1,6 @@
 "use client"
 import React, { useState, useContext } from "react";
-import { AppearanceContext } from "../page";
+import { AppearanceContext } from "../AppearanceContext";
 import { availableFonts_Classic } from "@/lib/FontsList";
 import FontsGallery from "../components/FontsGallery";
 

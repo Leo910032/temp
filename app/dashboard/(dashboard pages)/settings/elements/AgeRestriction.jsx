@@ -3,7 +3,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState, useMemo, useContext } from "react";
 import { useTranslation } from "@/lib/translation/useTranslation";
-import { SettingsContext } from "../page";
+import { SettingsContext } from "../SettingsContext";
 
 export default function AgeRestriction() {
     const { t, isInitialized } = useTranslation();

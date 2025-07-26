@@ -2,8 +2,7 @@
 
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState, useContext } from "react";
-import { SettingsContext } from "../page";
-
+import { SettingsContext } from "../SettingsContext";
 export default function Position() {
     const { currentUser } = useAuth();
     const { settings, updateSettings } = useContext(SettingsContext);

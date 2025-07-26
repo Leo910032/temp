@@ -13,7 +13,7 @@ import {
 import { isValidHexCode } from "@/lib/utilities";
 import { useEffect, useRef, useState, useContext, useMemo, useCallback } from "react";
 import { toast } from "react-hot-toast";
-import { AppearanceContext } from "../page";
+import { AppearanceContext } from "../AppearanceContext";
 
 export default function ColorPicker({ colorFor, disabled = false }) {
     const { currentUser } = useAuth();

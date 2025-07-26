@@ -1,7 +1,7 @@
 "use client"
 import { useContext, useEffect, useState, useMemo } from "react";
 import { FaCheck, FaX } from "react-icons/fa6";
-import { AppearanceContext } from "../page";
+import { AppearanceContext } from "../AppearanceContext";
 import { useDebounce } from "@/LocalHooks/useDebounce";
 import { availableFonts_Classic } from "@/lib/FontsList";
 import { useTranslation } from "@/lib/translation/useTranslation";

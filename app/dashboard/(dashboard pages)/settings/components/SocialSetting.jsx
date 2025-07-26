@@ -8,7 +8,7 @@ import AddIconModal from "../elements/AddIconModal";
 import EditIconModal from "../elements/EditIconModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTranslation } from "@/lib/translation/useTranslation";
-import { SettingsContext } from "../page";
+import { SettingsContext } from "../SettingsContext";
 
 export const SocialContext = React.createContext();
 

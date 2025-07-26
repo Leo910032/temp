@@ -2,7 +2,7 @@
 "use client"
 import { useAuth } from "@/contexts/AuthContext";
 import { uploadProfileImage, removeProfileImage } from "@/lib/services/appearanceService";
-import { AppearanceContext } from "../page"; // ✅ Import context
+import { AppearanceContext } from "../AppearanceContext";
 import Image from "next/image";
 import { useRef, useState, useEffect, useMemo, useContext } from "react";
 import { FaCheck, FaX } from "react-icons/fa6";

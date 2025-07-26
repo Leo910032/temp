@@ -4,7 +4,7 @@ import React, { useMemo, useContext } from 'react';
 import AgeRestriction from '../elements/AgeRestriction';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTranslation } from '@/lib/translation/useTranslation';
-import { SettingsContext } from '../page';
+import { SettingsContext } from '../SettingsContext';
 
 export default function SensitiveMaterial() {
     const { t, isInitialized } = useTranslation();

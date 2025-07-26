@@ -7,7 +7,7 @@ import { updateDisplayName, updateBio } from "@/lib/services/appearanceService";
 import { useEffect, useState, useMemo, useRef, useContext } from "react";
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { toast } from "react-hot-toast";
-import { AppearanceContext } from "../page"; // ✅ IMPORT: Use centralized context
+import { AppearanceContext } from "../AppearanceContext";
 
 export default function TextDetails() {
     const { t, isInitialized } = useTranslation();

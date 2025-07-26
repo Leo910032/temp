@@ -3,7 +3,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { updateTheme, updateThemeTextColour } from "@/lib/services/appearanceService";
 import { useTranslation } from "@/lib/translation/useTranslation";
-import { AppearanceContext } from "../page"; // ✅ Import the context
+import { AppearanceContext } from "../AppearanceContext";
 import Image from "next/image";
 import { useEffect, useState, useMemo, useContext } from "react"; // ✅ Add useContext
 import { FaCheck } from "react-icons/fa6";

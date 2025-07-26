@@ -1,10 +1,13 @@
 "use client"
-import React, { createContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDebounce } from '@/LocalHooks/useDebounce';
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { toast } from 'react-hot-toast';
 import { getSettingsData, updateSettingsData } from '@/lib/services/settingsService';
+
+// ✅ FIXED: Import context from separate file
+import { SettingsContext } from './SettingsContext';
 
 // Import components
 import Controller from "./components/Controller";
@@ -13,9 +16,7 @@ import SensitiveMaterial from "./components/SensitiveMaterial";
 import SocialSetting from "./components/SocialSetting";
 import SupportBanner from "./components/SupportBanner";
 
-export const SettingsContext = createContext(null);
-
-export default function SettingsPage() {
+function SettingsPage() {
     const { currentUser } = useAuth();
     const { t, isInitialized } = useTranslation();
     
@@ -243,3 +244,6 @@ export default function SettingsPage() {
         </SettingsContext.Provider>
     );
 }
+
+// ✅ FIXED: Only export the default component function
+export default SettingsPage;

@@ -10,7 +10,7 @@ import Image from "next/image";
 import { useContext, useEffect, useRef, useState, useMemo } from "react";
 import { FaCheck, FaX } from "react-icons/fa6";
 import { backgroundContext } from "../components/Backgrounds";
-import { AppearanceContext } from "../page"; // ✅ ADD: Import AppearanceContext
+import { AppearanceContext } from "../AppearanceContext";
 import { toast } from "react-hot-toast";
 import { useTranslation } from "@/lib/translation/useTranslation";
 

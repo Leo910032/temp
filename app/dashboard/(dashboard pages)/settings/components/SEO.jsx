@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import Image from "next/image";
 import { useEffect, useState, useMemo, useContext, useRef } from "react";
 import { useTranslation } from "@/lib/translation/useTranslation";
-import { SettingsContext } from "../page";
+import { SettingsContext } from "../SettingsContext";
 
 export default function SEO() {
     const { t, isInitialized } = useTranslation();
