@@ -11,7 +11,7 @@ import {
     updateThemeTextColour
 } from "@/lib/services/appearanceService";
 import { isValidHexCode } from "@/lib/utilities";
-import { useEffect, useRef, useState, useContext } from "react";
+import { useEffect, useRef, useState, useContext, useMemo, useCallback } from "react";
 import { toast } from "react-hot-toast";
 import { AppearanceContext } from "../page";
 
@@ -27,61 +27,33 @@ export default function ColorPicker({ colorFor, disabled = false }) {
     const hasInitialized = useRef(false);
     const lastContextValue = useRef(null); // Track last known context value
 
-    // ✅ VALIDATE colorFor prop to prevent undefined issues
-    if (colorFor === undefined || colorFor === null) {
-        console.warn('⚠️ ColorPicker: colorFor prop is undefined, skipping render');
-        return null;
-    }
-
-    // Map colorFor to update functions
-    const updateFunctions = {
+    // ✅ Memoize static objects to prevent unnecessary re-renders
+    const updateFunctions = useMemo(() => ({
         0: updateThemeBackgroundColor,
         1: updateThemeBtnColor,
         2: updateThemeBtnFontColor,
         3: updateThemeBtnShadowColor,
         4: updateThemeTextColour,
-    };
+    }), []);
 
-    // Map colorFor to appearance field names
-    const colorFieldMap = {
+    const colorFieldMap = useMemo(() => ({
         0: 'backgroundColor',
         1: 'btnColor',
         2: 'btnFontColor',
         3: 'btnShadowColor',
         4: 'themeTextColour',
-    };
+    }), []);
 
-    // Map colorFor to default colors
-    const defaultColors = {
+    const defaultColors = useMemo(() => ({
         0: '#e8edf5',
         1: '#ffffff',
         2: '#000000',
         3: '#000000',
         4: '#000000',
-    };
+    }), []);
 
-    // ✅ VALIDATE colorFor is valid
-    if (!(colorFor in colorFieldMap)) {
-        console.warn(`⚠️ ColorPicker: Invalid colorFor value: ${colorFor}`);
-        return null;
-    }
-
-    // ✅ FIXED: Initialize color from context only once, then let user control it
-    useEffect(() => {
-        if (appearance && !hasInitialized.current) {
-            const fieldName = colorFieldMap[colorFor];
-            const currentColor = appearance[fieldName] || defaultColors[colorFor];
-            setColorText(currentColor);
-            lastContextValue.current = currentColor;
-            hasInitialized.current = true;
-            console.log(`🎨 ColorPicker ${colorFor}: Initialized with color: ${currentColor}`);
-        }
-    }, [appearance, colorFor]);
-
-    // ✅ REMOVED: The problematic sync logic that was overwriting user changes
-    // The color picker should be controlled by user input, not constantly synced to context
-
-    const handleUpdateTheme = async (color) => {
+    // ✅ Memoize handleUpdateTheme to prevent unnecessary re-renders
+    const handleUpdateTheme = useCallback(async (color) => {
         if (!currentUser || disabled || isUpdating) return;
 
         const updateFunction = updateFunctions[colorFor];
@@ -114,7 +86,19 @@ export default function ColorPicker({ colorFor, disabled = false }) {
         } finally {
             setIsUpdating(false);
         }
-    };
+    }, [currentUser, disabled, isUpdating, updateFunctions, colorFor, colorFieldMap, updateAppearance, appearance, defaultColors]);
+
+    // ✅ FIXED: Initialize color from context only once, then let user control it
+    useEffect(() => {
+        if (appearance && !hasInitialized.current && colorFor !== undefined && colorFor !== null) {
+            const fieldName = colorFieldMap[colorFor];
+            const currentColor = appearance[fieldName] || defaultColors[colorFor];
+            setColorText(currentColor);
+            lastContextValue.current = currentColor;
+            hasInitialized.current = true;
+            console.log(`🎨 ColorPicker ${colorFor}: Initialized with color: ${currentColor}`);
+        }
+    }, [appearance, colorFor, colorFieldMap, defaultColors]);
 
     // ✅ FIXED: Handle debounced color updates with proper validation
     useEffect(() => {
@@ -134,7 +118,7 @@ export default function ColorPicker({ colorFor, disabled = false }) {
         } else if (colorText !== "" && !isValidHexCode(colorText)) {
             setValidColor(false);
         }
-    }, [debounceColor, currentUser, appearance]);
+    }, [debounceColor, currentUser, appearance, colorText, handleUpdateTheme]);
 
     // Validate color on direct input
     useEffect(() => {
@@ -142,6 +126,18 @@ export default function ColorPicker({ colorFor, disabled = false }) {
             setValidColor(isValidHexCode(colorText));
         }
     }, [colorText]);
+
+    // ✅ VALIDATE colorFor prop to prevent undefined issues
+    if (colorFor === undefined || colorFor === null) {
+        console.warn('⚠️ ColorPicker: colorFor prop is undefined, skipping render');
+        return null;
+    }
+
+    // ✅ VALIDATE colorFor is valid
+    if (!(colorFor in colorFieldMap)) {
+        console.warn(`⚠️ ColorPicker: Invalid colorFor value: ${colorFor}`);
+        return null;
+    }
 
     // ✅ EARLY RETURN: Don't render if missing dependencies
     if (!currentUser || !appearance || !hasInitialized.current) {

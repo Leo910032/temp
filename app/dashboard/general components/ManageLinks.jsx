@@ -44,15 +44,15 @@ export default function ManageLinks() {
     }, [t, isInitialized]);
 
     // --- User Actions ---
-    const addLinkItem = () => {
+    const addLinkItem = useCallback(() => {
         const newLink = { id: generateRandomId(), title: "", url: "", urlKind: "", isActive: true, type: 1 };
         setData(prevData => [newLink, ...prevData]);
-    };
+    }, []);
 
-    const addHeaderItem = () => {
+    const addHeaderItem = useCallback(() => {
         const newHeader = { id: generateRandomId(), title: "", isActive: true, type: 0 };
         setData(prevData => [newHeader, ...prevData]);
-    };
+    }, []);
     
     // --- Server-Side Data Fetching (Replaces real-time listener) ---
     const fetchLinksFromServer = useCallback(async () => {
@@ -130,6 +130,14 @@ export default function ManageLinks() {
         }
     }, [currentUser, translations.linksSaved, translations.savingError]);
 
+    // ✅ MOVED: Context value memoization before any early returns
+    const contextValue = useMemo(() => ({
+        setData,
+        data,
+        refreshData: fetchLinksFromServer,
+        isSaving
+    }), [data, fetchLinksFromServer, isSaving]);
+
     // --- Initial Data Fetch ---
     useEffect(() => {
         if (currentUser && isInitialized) {
@@ -178,14 +186,6 @@ export default function ManageLinks() {
             </div>
         );
     }
-
-    // ✅ IMPROVED: Context value with refresh function
-    const contextValue = useMemo(() => ({
-        setData,
-        data,
-        refreshData: fetchLinksFromServer, // Allow manual refresh
-        isSaving
-    }), [data, fetchLinksFromServer, isSaving]);
 
     return (
         <ManageLinksContent.Provider value={contextValue}>

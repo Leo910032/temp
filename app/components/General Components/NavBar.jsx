@@ -143,6 +143,20 @@ export default function NavBar() {
         }
     }, [currentUser, updateNavbarState]);
 
+    // ✅ MOVED: Context value memoization before any early returns
+    const contextValue = useMemo(() => ({
+        username,
+        displayName,
+        myLink,
+        profilePicture,
+        showProfileCard,
+        setShowProfileCard,
+        showShareCard,
+        setShowShareCard,
+        currentUser,
+        refreshUserData: () => fetchUserData(true) // Allow manual refresh
+    }), [username, displayName, myLink, profilePicture, showProfileCard, showShareCard, currentUser, fetchUserData]);
+
     // ✅ LOAD DATA: Use cached data or fetch fresh
     useEffect(() => {
         if (currentUser && isInitialized) {
@@ -240,21 +254,6 @@ export default function NavBar() {
         // Render a placeholder or nothing during initial auth check
         return <div className="w-full h-[68px]"></div>; // Or a skeleton loader
     }
-
-
-    // ✅ CONTEXT VALUE: Optimized with refresh capability
-    const contextValue = useMemo(() => ({
-        username,
-        displayName,
-        myLink,
-        profilePicture,
-        showProfileCard,
-        setShowProfileCard,
-        showShareCard,
-        setShowShareCard,
-        currentUser,
-        refreshUserData: () => fetchUserData(true) // Allow manual refresh
-    }), [username, displayName, myLink, profilePicture, showProfileCard, showShareCard, currentUser, fetchUserData]);
 
     return (
         <NavContext.Provider value={contextValue}>

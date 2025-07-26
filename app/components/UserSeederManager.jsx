@@ -246,7 +246,7 @@ export default function UserSeederManager() {
                         </div>
                         <ol className="text-xs text-yellow-700 space-y-1">
                             <li>1. Create test users</li>
-                            <li>2. Click "🔥 Compare DB Methods"</li>
+                            <li>2. Click &ldquo;🔥 Compare DB Methods&rdquo;</li>
                             <li>3. See the speed difference!</li>
                             <li>4. Try typing sample usernames</li>
                         </ol>
