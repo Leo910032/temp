@@ -1,4 +1,4 @@
-// app/admin/page.jsx - ENHANCED WITH ANALYTICS DATA
+// app/admin/page.jsx - FIXED VERSION with enhanced debugging
 "use client"
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -78,73 +78,98 @@ export default function AdminDashboard() {
         }
     };
 
-   // Enhanced fetchUserDetail function with comprehensive debugging
-// Add this to your app/admin/page.jsx file, replacing the existing fetchUserDetail function
-
-const fetchUserDetail = async (userId) => {
-    console.log('🎯 fetchUserDetail called with userId:', userId);
-    
-    setUserDetailLoading(true);
-    setSelectedUser(null);
-    
-    try {
-        if (!currentUser) {
-            console.error("❌ No currentUser available");
-            throw new Error("Authentication context is not available.");
+    // ✅ FIXED: Enhanced fetchUserDetail function with better debugging
+    const fetchUserDetail = async (userId) => {
+        console.log('🎯 === FETCH USER DETAIL START ===');
+        console.log('🎯 User ID received:', userId);
+        console.log('🎯 Type of userId:', typeof userId);
+        console.log('🎯 Current user available:', !!currentUser);
+        
+        if (!userId) {
+            console.error('❌ No userId provided to fetchUserDetail');
+            alert('Error: No user ID provided');
+            return;
         }
-        
-        console.log('👤 Current user email:', currentUser.email);
-        
-        const token = await currentUser.getIdToken();
-        console.log('🔑 Token obtained:', token ? 'Yes' : 'No');
-        
-        const apiUrl = `/api/admin/user/${userId}`;
-        console.log('🌐 Making request to:', apiUrl);
-        
-        const response = await fetch(apiUrl, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-        });
 
-        console.log('📡 Response status:', response.status);
-        console.log('📄 Response headers:', Object.fromEntries(response.headers.entries()));
-
-        if (response.ok) {
-            const userData = await response.json();
-            console.log('✅ User detail data received:', userData);
-            setSelectedUser(userData);
-        } else {
-            const errorData = await response.text(); // Use text() first to see raw response
-            console.error(`❌ Failed to fetch user ${userId}:`, {
-                status: response.status,
-                statusText: response.statusText,
-                rawResponse: errorData
-            });
-            
-            // Try to parse as JSON if possible
-            let parsedError = errorData;
-            try {
-                parsedError = JSON.parse(errorData);
-            } catch (e) {
-                console.warn('⚠️ Response is not valid JSON');
+        setUserDetailLoading(true);
+        setSelectedUser(null);
+        
+        try {
+            if (!currentUser) {
+                console.error("❌ No currentUser available");
+                throw new Error("Authentication context is not available.");
             }
             
-            alert(`Error loading user details: ${parsedError.error || parsedError || response.statusText}`);
+            console.log('👤 Current user email:', currentUser.email);
+            
+            const token = await currentUser.getIdToken();
+            console.log('🔑 Token obtained for user detail:', token ? 'Yes' : 'No');
+            
+            const apiUrl = `/api/admin/user/${userId}`;
+            console.log('🌐 Making request to:', apiUrl);
+            
+            const response = await fetch(apiUrl, {
+                method: 'GET', // Explicitly set method
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            console.log('📡 User detail response status:', response.status);
+            console.log('📄 Response headers:', Object.fromEntries(response.headers.entries()));
+
+            if (response.ok) {
+                const userData = await response.json();
+                console.log('✅ User detail data received:', userData);
+                setSelectedUser(userData);
+            } else {
+                const errorText = await response.text(); // Get raw response first
+                console.error(`❌ Failed to fetch user ${userId}:`, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    rawResponse: errorText
+                });
+                
+                // Try to parse as JSON
+                let errorMessage = errorText;
+                try {
+                    const errorData = JSON.parse(errorText);
+                    errorMessage = errorData.error || errorMessage;
+                } catch (e) {
+                    console.warn('⚠️ Response is not valid JSON');
+                }
+                
+                alert(`Error loading user details: ${errorMessage}`);
+            }
+        } catch (error) {
+            console.error('💥 Client-side error in fetchUserDetail:', {
+                message: error.message,
+                stack: error.stack,
+                userId: userId
+            });
+            alert(`An unexpected error occurred: ${error.message}`);
+        } finally {
+            console.log('🏁 fetchUserDetail completed');
+            setUserDetailLoading(false);
         }
-    } catch (error) {
-        console.error('💥 Client-side error in fetchUserDetail:', {
-            message: error.message,
-            stack: error.stack,
-            userId: userId
-        });
-        alert(`An unexpected error occurred: ${error.message}`);
-    } finally {
-        console.log('🏁 fetchUserDetail completed');
-        setUserDetailLoading(false);
-    }
-};
+    };
+
+    // ✅ Enhanced click handler with debugging
+    const handleUserClick = (user) => {
+        console.log('🖱️ === USER CLICK EVENT ===');
+        console.log('🖱️ Clicked user object:', user);
+        console.log('🖱️ User ID:', user.id);
+        console.log('🖱️ User username:', user.username);
+        
+        if (!user.id) {
+            console.error('❌ User object has no ID property');
+            alert('Error: User has no ID');
+            return;
+        }
+        
+        fetchUserDetail(user.id);
+    };
 
     // ✅ NEW: Helper function to get traffic source icon
     const getTrafficSourceIcon = (source) => {
@@ -193,7 +218,7 @@ const fetchUserDetail = async (userId) => {
                 </Link>
             </div>
 
-            {/* ✅ ENHANCED: Stats Cards with Analytics */}
+            {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
                 <div className="bg-white rounded-lg shadow p-6">
                     <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
@@ -221,7 +246,7 @@ const fetchUserDetail = async (userId) => {
                 </div>
             </div>
 
-            {/* ✅ NEW: Account Types Breakdown */}
+            {/* Account Types Breakdown */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Types</h3>
                 <div className="grid grid-cols-4 gap-4">
@@ -245,7 +270,7 @@ const fetchUserDetail = async (userId) => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* ✅ ENHANCED: Users List with Analytics */}
+                {/* Users List */}
                 <div className="bg-white rounded-lg shadow">
                     <div className="px-6 py-4 border-b border-gray-200">
                         <h3 className="text-lg font-semibold text-gray-900">All Users ({users.length})</h3>
@@ -255,7 +280,7 @@ const fetchUserDetail = async (userId) => {
                         {users.map((user) => (
                             <div
                                 key={user.id}
-                                onClick={() => fetchUserDetail(user.id)}
+                                onClick={() => handleUserClick(user)} // ✅ Use enhanced click handler
                                 className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
                                     selectedUser?.id === user.id ? 'bg-blue-50 border-blue-200' : ''
                                 }`}
@@ -283,7 +308,6 @@ const fetchUserDetail = async (userId) => {
                                             <p className="text-sm font-medium text-gray-900 truncate">
                                                 {user.displayName} (@{user.username})
                                             </p>
-                                            {/* ✅ NEW: Account type badge */}
                                             <span className={`text-xs px-2 py-1 rounded-full ${
                                                 user.accountType === 'business' ? 'bg-yellow-100 text-yellow-800' :
                                                 user.accountType === 'premium' ? 'bg-purple-100 text-purple-800' :
@@ -295,7 +319,7 @@ const fetchUserDetail = async (userId) => {
                                         </div>
                                         <p className="text-sm text-gray-500 truncate">{user.email}</p>
                                         
-                                        {/* ✅ NEW: Analytics summary */}
+                                        {/* Analytics summary */}
                                         <div className="flex items-center space-x-3 mt-1">
                                             <div className="flex items-center space-x-1">
                                                 <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
@@ -337,15 +361,21 @@ const fetchUserDetail = async (userId) => {
                     </div>
                 </div>
 
-                {/* ✅ ENHANCED: User Details with Analytics */}
+                {/* User Details */}
                 <div className="bg-white rounded-lg shadow">
                     <div className="px-6 py-4 border-b border-gray-200">
                         <h3 className="text-lg font-semibold text-gray-900">User Details</h3>
+                        {selectedUser && (
+                            <p className="text-sm text-gray-500">Selected: {selectedUser.displayName}</p>
+                        )}
                     </div>
                     <div className="p-6">
                         {userDetailLoading ? (
                             <div className="flex items-center justify-center py-8">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                <div className="text-center">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                                    <p className="mt-2 text-sm text-gray-600">Loading user details...</p>
+                                </div>
                             </div>
                         ) : selectedUser ? (
                             <div className="space-y-4">
@@ -382,7 +412,7 @@ const fetchUserDetail = async (userId) => {
                                     </div>
                                 </div>
 
-                                {/* ✅ NEW: Analytics Section */}
+                                {/* Analytics Section */}
                                 <div className="bg-gray-50 rounded-lg p-4">
                                     <h5 className="font-medium text-gray-900 mb-3">📊 Analytics Overview</h5>
                                     <div className="grid grid-cols-2 gap-4 mb-4">
