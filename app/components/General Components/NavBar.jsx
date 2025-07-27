@@ -60,104 +60,156 @@ export default function NavBar() {
         return adminStatus;
     }, [currentUser?.email]);
 
-    // ✅ HELPER: Update navbar state from data
-    const updateNavbarState = useCallback((data) => {
-        // console.log("🔄 updateNavbarState called with:", data);
-        const newUsername = data.username || "";
-        const newDisplayName = data.displayName || newUsername;
-        const profilePhoto = data.profilePhoto || "";
-        setUsername(newUsername);
-        setDisplayName(newDisplayName);
-        // ✅ FIXED: Removed extra space in the URL template literal
-        setMyLink(newUsername ? `http://localhost:3000/${newUsername}` : "");
-        // Set profile picture
-        if (profilePhoto) {
-            setProfilePicture(
-                <Image
-                    src={profilePhoto}
-                    alt="profile"
-                    height={1000}
-                    width={1000}
-                    className="min-w-full h-full object-cover"
-                    priority
-                />
-            );
-        } else {
-            setProfilePicture(
-                <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
-                    <span className="text-3xl font-semibold uppercase">
-                        {newDisplayName ? newDisplayName.charAt(0) : (currentUser?.email ? currentUser.email.charAt(0) : 'U')}
-                    </span>
-                </div>
-            );
-        }
-        // console.log("🔄 updateNavbarState finished. States should update soon.");
-    }, [currentUser?.email]); // Dependency on currentUser.email for the fallback text
+  // Replace your updateNavbarState function in NavBar.jsx with this:
 
-    // ✅ PERSISTENT DATA FETCH: Use cache to prevent refetching
-    const fetchUserData = useCallback(async (forceRefresh = false) => {
-        if (!currentUser) return;
-        // ✅ CHECK CACHE FIRST: Use cached data if available and not forcing refresh
-        if (globalNavDataCache && !forceRefresh) {
-            // console.log('🔄 NavBar: Using cached data');
-            updateNavbarState(globalNavDataCache);
-            setIsLoading(false);
-            return;
-        }
-        setIsLoading(true);
-        try {
-            // console.log('📥 NavBar: Fetching fresh data from server...');
-            const appearanceData = await getAppearanceData(); // Renamed for clarity
-            // console.log('🔍 Appearance data received:', appearanceData);
-            // ✅ FIXED: Get username from currentUser.uid, not appearanceData
-            // You might need to adjust this if your username logic is different
-            // e.g., if it's based on email: const derivedUsername = currentUser.email?.split('@')[0] || "";
-            const data = await getAppearanceData();
-            // console.log('👤 Derived username from currentUser.uid:', derivedUsername);
-            // ✅ CACHE DATA: Store globally for future use
+const updateNavbarState = useCallback((data) => {
+    console.log("🔄 updateNavbarState called with:", data);
+    
+    const newUsername = data.username || "";
+    const newDisplayName = data.displayName || newUsername;
+    const profilePhoto = data.profilePhoto || "";
+    
+    console.log("🔄 Setting states:", { 
+        newUsername, 
+        newDisplayName, 
+        profilePhoto: !!profilePhoto 
+    });
+    
+    // ✅ CRITICAL: Ensure username is set properly
+    setUsername(newUsername);
+    setDisplayName(newDisplayName);
+    
+    // ✅ FIXED: Create myLink with the correct domain
+    const newMyLink = newUsername ? `http://localhost:3001/${newUsername}` : "";
+    setMyLink(newMyLink);
+    
+    console.log("🔗 Generated myLink:", newMyLink);
+    
+    // Set profile picture
+    if (profilePhoto) {
+        setProfilePicture(
+            <Image
+                src={profilePhoto}
+                alt="profile"
+                height={1000}
+                width={1000}
+                className="min-w-full h-full object-cover"
+                priority
+            />
+        );
+    } else {
+        setProfilePicture(
+            <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                <span className="text-3xl font-semibold uppercase">
+                    {newDisplayName ? newDisplayName.charAt(0) : (currentUser?.email ? currentUser.email.charAt(0) : 'U')}
+                </span>
+            </div>
+        );
+    }
+    
+    console.log("🔄 updateNavbarState completed successfully");
+}, [currentUser?.email]);
+// Replace your fetchUserData function in NavBar.jsx with this:
+
+const fetchUserData = useCallback(async (forceRefresh = false) => {
+    if (!currentUser) {
+        console.log('❌ NavBar: No currentUser available');
+        return;
+    }
+    
+    // Check cache first
+    if (globalNavDataCache && !forceRefresh) {
+        console.log('🔄 NavBar: Using cached data');
+        updateNavbarState(globalNavDataCache);
+        setIsLoading(false);
+        return;
+    }
+    
+    setIsLoading(true);
+    try {
+        console.log('📥 NavBar: Fetching fresh data from server...');
+        const appearanceData = await getAppearanceData();
+        console.log('🔍 Raw appearance data received:', appearanceData);
+        
+        // ✅ FIXED: Extract the correct fields from the response
+        const username = appearanceData.username || "";
+        const displayName = appearanceData.displayName || username || "";
+        const profilePhoto = appearanceData.profilePhoto || "";
+        
+        console.log('🔍 Extracted data:', { username, displayName, profilePhoto });
+        
+        // ✅ FIXED: Validate that we got the username
+        if (!username) {
+            console.error('❌ NavBar: No username found in appearance data!');
+            console.log('📋 Available fields in appearanceData:', Object.keys(appearanceData));
+            
+            // Try to use currentUser.uid as fallback
+            const fallbackUsername = currentUser.uid;
+            console.log('🔄 Using currentUser.uid as fallback username:', fallbackUsername);
+            
             globalNavDataCache = {
-                username: data.username || "", // This is now correct
-                displayName: data.displayName || data.username || "",
-                profilePhoto: data.profilePhoto || ""
+                username: fallbackUsername,
+                displayName: displayName || fallbackUsername,
+                profilePhoto: profilePhoto
             };
-            // globalNavDataFetched = true; // Removed as per change request
-            updateNavbarState(globalNavDataCache);
-            // console.log('✅ NavBar: User data (including derived username) loaded and cached');
-        } catch (error) {
-            console.error('❌ NavBar: Failed to fetch user data:', error);
-            // ✅ FALLBACK: Use email-based profile if fetch fails
-            setProfilePicture(
-                <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
-                    <span className="text-3xl font-semibold uppercase">
-                        {currentUser.email ? currentUser.email.charAt(0) : 'U'}
-                    </span>
-                </div>
-            );
-            // Even if appearance fetch fails, try to set username from auth
-            const fallbackUsername = currentUser?.uid || "";
-            setUsername(fallbackUsername);
-            setDisplayName(currentUser?.displayName || fallbackUsername);
-            setMyLink(fallbackUsername ? `https://mylinks.fabiconcept.online/${fallbackUsername}` : "");
-        } finally {
-            setIsLoading(false);
+        } else {
+            // Cache the successful data
+            globalNavDataCache = {
+                username,
+                displayName,
+                profilePhoto
+            };
         }
-    }, [currentUser, updateNavbarState]);
+        
+        updateNavbarState(globalNavDataCache);
+        console.log('✅ NavBar: User data loaded and cached successfully');
+        
+    } catch (error) {
+        console.error('❌ NavBar: Failed to fetch user data:', error);
+        
+        // ✅ IMPROVED: Better fallback handling
+        const fallbackUsername = currentUser.uid;
+        const fallbackDisplayName = currentUser.displayName || currentUser.email?.split('@')[0] || fallbackUsername;
+        
+        console.log('🔄 NavBar: Using fallback data:', { fallbackUsername, fallbackDisplayName });
+        
+        setUsername(fallbackUsername);
+        setDisplayName(fallbackDisplayName);
+        setMyLink(fallbackUsername ? `http://localhost:3001/${fallbackUsername}` : "");
+        
+        // Set fallback profile picture
+        setProfilePicture(
+            <div className="h-[95%] aspect-square w-[95%] rounded-full bg-gray-300 border grid place-items-center">
+                <span className="text-3xl font-semibold uppercase">
+                    {fallbackDisplayName ? fallbackDisplayName.charAt(0) : 'U'}
+                </span>
+            </div>
+        );
+    } finally {
+        setIsLoading(false);
+    }
+}, [currentUser, updateNavbarState]);
 
-    // ✅ MOVED: Context value memoization before any early returns
-    const contextValue = useMemo(() => ({
-        username,
-        displayName,
-        myLink,
-        profilePicture,
-        showProfileCard,
-        setShowProfileCard,
-        showShareCard,
-        setShowShareCard,
-        currentUser,
-        refreshUserData: () => fetchUserData(true) // Allow manual refresh
-    }), [username, displayName, myLink, profilePicture, showProfileCard, showShareCard, currentUser, fetchUserData]);
+// In NavBar.jsx, update the contextValue to include isLoading:
 
-    // ✅ LOAD DATA: Use cached data or fetch fresh
+// In your NavBar.jsx, make sure your contextValue looks like this:
+
+const contextValue = useMemo(() => ({
+    username,
+    displayName,
+    myLink,
+    profilePicture,
+    showProfileCard,
+    setShowProfileCard,
+    showShareCard,
+    setShowShareCard,
+    currentUser,
+    isLoading, // ✅ CRITICAL: Make sure this is included
+    refreshUserData: () => fetchUserData(true)
+}), [username, displayName, myLink, profilePicture, showProfileCard, showShareCard, currentUser, isLoading, fetchUserData]);
+
+
+// ✅ LOAD DATA: Use cached data or fetch fresh
     useEffect(() => {
         if (currentUser && isInitialized) {
             if (globalNavDataCache) {
@@ -193,18 +245,38 @@ export default function NavBar() {
         setShowShareCard(false);
     };
 
-    const handleShowShareCard = () => {
-        // console.log("🖱️ Share button clicked. isLoading:", isLoading, "username:", username);
-        // This check is now reliable because the state will be updated correctly.
-        if (isLoading || !username) {
-            console.warn("⚠️ Share button clicked but data is not ready or username is empty. Cannot toggle ShareCard.");
-            return;
-        }
-        const newState = !showShareCard;
-        // console.log("🔄 Toggling ShareCard visibility to:", newState);
-        setShowShareCard(newState);
-        setShowProfileCard(false);
-    };
+   // In your NavBar.jsx, replace the handleShowShareCard function with this:
+
+const handleShowShareCard = () => {
+    console.log("🖱️ Share button clicked. Debug info:", {
+        isLoading,
+        username,
+        myLink,
+        canProceed: !isLoading && username && myLink
+    });
+    
+    // ✅ COMPREHENSIVE CHECK: Ensure all required data is ready
+    if (isLoading) {
+        console.warn("⚠️ Share button clicked but data is still loading. Cannot toggle ShareCard.");
+        return;
+    }
+    
+    if (!username) {
+        console.warn("⚠️ Share button clicked but username is empty. Cannot toggle ShareCard.");
+        return;
+    }
+    
+    if (!myLink) {
+        console.warn("⚠️ Share button clicked but myLink is empty. Cannot toggle ShareCard.");
+        return;
+    }
+    
+    // All checks passed, proceed with toggling
+    const newState = !showShareCard;
+    console.log("✅ All data ready. Toggling ShareCard visibility to:", newState);
+    setShowShareCard(newState);
+    setShowProfileCard(false);
+};
 
     // ✅ FIXED: Single, consolidated useEffect for handling clicks outside BOTH cards
     // ✅ CHANGED: Added isLoading to dependency array (though effect logic doesn't directly use it,

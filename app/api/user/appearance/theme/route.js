@@ -35,6 +35,8 @@ function isValidColor(color) {
     return hexRegex.test(color);
 }
 
+// In your /api/user/appearance/theme/route.js, replace the GET function with this:
+
 /**
  * GET /api/user/appearance/theme
  * Fetch user's appearance settings
@@ -54,8 +56,15 @@ export async function GET(request) {
 
         const userData = userDoc.data();
         
-        // Return only appearance-related data
+        // ✅ FIXED: Include username and other essential fields for NavBar
         const appearanceData = {
+            // ✅ CRITICAL: Include username for NavBar functionality
+            username: userData.username || '',
+            displayName: userData.displayName || '',
+            bio: userData.bio || '',
+            profilePhoto: userData.profilePhoto || '',
+            
+            // Appearance settings
             selectedTheme: userData.selectedTheme || 'Lake White',
             themeFontColor: userData.themeFontColor || '#000',
             themeTextColour: userData.themeTextColour || '#000',
@@ -69,10 +78,13 @@ export async function GET(request) {
             btnFontColor: userData.btnFontColor || '#000',
             btnShadowColor: userData.btnShadowColor || '#000',
             fontType: userData.fontType || 0,
-            displayName: userData.displayName || '',
-            bio: userData.bio || '',
-            profilePhoto: userData.profilePhoto || ''
         };
+
+        console.log('✅ API: Returning appearance data with username:', {
+            hasUsername: !!appearanceData.username,
+            username: appearanceData.username,
+            hasDisplayName: !!appearanceData.displayName
+        });
 
         return NextResponse.json(appearanceData);
 
@@ -101,38 +113,39 @@ export async function POST(request) {
         const userDocRef = adminDb.collection('AccountData').doc(uid);
         let updateData = {};
 
-        if (isBulkUpdate) {
-            // ✅ BULK UPDATE: Handle direct appearance data from the appearance page
-            console.log('Processing bulk appearance update for user:', uid);
-            
-            // Filter out sensitive fields and only allow appearance-related updates
-            const allowedFields = [
-                'selectedTheme', 'themeFontColor', 'themeTextColour', 
-                'backgroundType', 'backgroundColor', 'backgroundImage', 
-                'backgroundVideo', 'gradientDirection', 'btnType', 
-                'btnColor', 'btnFontColor', 'btnShadowColor', 'fontType',
-                'displayName', 'bio', 'profilePhoto'
-            ];
-            
-            updateData = {};
-            for (const [key, value] of Object.entries(body)) {
-                if (allowedFields.includes(key)) {
-                    // Validate colors if they're color fields
-                    if (['backgroundColor', 'btnColor', 'btnFontColor', 'btnShadowColor', 'themeFontColor', 'themeTextColour'].includes(key)) {
-                        if (value && !isValidColor(value)) {
-                            console.warn(`Invalid color format for ${key}: ${value}`);
-                            continue; // Skip invalid colors
-                        }
-                    }
-                    updateData[key] = value;
+       // In your POST function, update the allowedFields array:
+
+if (isBulkUpdate) {
+    // ✅ BULK UPDATE: Handle direct appearance data from the appearance page
+    console.log('Processing bulk appearance update for user:', uid);
+    
+    // ✅ FIXED: Include username in allowed fields
+    const allowedFields = [
+        'username', 'displayName', 'bio', 'profilePhoto', // ✅ User profile fields
+        'selectedTheme', 'themeFontColor', 'themeTextColour', 
+        'backgroundType', 'backgroundColor', 'backgroundImage', 
+        'backgroundVideo', 'gradientDirection', 'btnType', 
+        'btnColor', 'btnFontColor', 'btnShadowColor', 'fontType'
+    ];
+    
+    updateData = {};
+    for (const [key, value] of Object.entries(body)) {
+        if (allowedFields.includes(key)) {
+            // Validate colors if they're color fields
+            if (['backgroundColor', 'btnColor', 'btnFontColor', 'btnShadowColor', 'themeFontColor', 'themeTextColour'].includes(key)) {
+                if (value && !isValidColor(value)) {
+                    console.warn(`Invalid color format for ${key}: ${value}`);
+                    continue; // Skip invalid colors
                 }
             }
+            updateData[key] = value;
+        }
+    }
 
-            if (Object.keys(updateData).length === 0) {
-                return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
-            }
-
-        } else {
+    if (Object.keys(updateData).length === 0) {
+        return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
+    }
+}else {
             // ✅ ACTION-BASED UPDATE: Handle individual theme actions (for backward compatibility)
             const { action, data } = body;
 
@@ -251,4 +264,4 @@ export async function POST(request) {
 export async function PUT(request) {
     // Just redirect to POST for consistency
     return POST(request);
-}
+}   

@@ -29,18 +29,20 @@ export default function ShareLiElement({children, nextPage }) {
 
     const handleNextPage = (e) => {
         // Stop event from bubbling up to parent elements
-        // This prevents the ShareCard from closing
         e.preventDefault();
         e.stopPropagation();
         if (e.stopImmediatePropagation) {
             e.stopImmediatePropagation();
         }
         
+        // ✅ IMPROVED: Better validation with more descriptive warnings
         if (!myLink) {
+            console.warn("⚠️ ShareLiElement: myLink is not available, cannot proceed with share action");
             return;
         }
         
         if (!setCurrentPage) {
+            console.warn("⚠️ ShareLiElement: setCurrentPage function is not available from ShareContext");
             return;
         }
         
@@ -83,6 +85,7 @@ export default function ShareLiElement({children, nextPage }) {
                     }
                     break;
                 default:
+                    console.warn(`⚠️ ShareLiElement: Unknown share target: ${shareTo}`);
                     break;
             }
             return;
@@ -98,7 +101,12 @@ export default function ShareLiElement({children, nextPage }) {
             return;
         }
 
-        setCurrentPage((previousPages) => [...previousPages, { page: nextPage }]);
+        // ✅ IMPROVED: Better error handling for page navigation
+        try {
+            setCurrentPage((previousPages) => [...previousPages, { page: nextPage }]);
+        } catch (error) {
+            console.error("❌ ShareLiElement: Error updating currentPage:", error);
+        }
     };
 
     useEffect(() => {
@@ -127,6 +135,11 @@ export default function ShareLiElement({children, nextPage }) {
             e.stopImmediatePropagation();
         }
     };
+
+    // ✅ IMPROVED: Don't render if essential data is missing
+    if (!shareContext || !myLink) {
+        return null;
+    }
 
     return (
         <div 

@@ -1,11 +1,11 @@
 // File: app/components/NavComponents/ShareCard.jsx
 
 "use client"
-import React, { useContext, useEffect, useState, forwardRef } from "react"; // ✅ Import forwardRef
+import React, { useContext, useEffect, useState, forwardRef } from "react";
 import { NavContext } from "../General Components/NavBar";
 import Image from "next/image";
 import ShareLiElement from "./elements/ShareLiElement";
-import { ShareTo, addSocials, homePage, socialPage } from "@/lib/ShareCardArrays"; // ✅ Added socialPage
+import { ShareTo, addSocials, homePage, socialPage } from "@/lib/ShareCardArrays";
 import MLink from "./elements/MLink";
 import MyQrCode from "./elements/MyQrCode";
 
@@ -18,6 +18,8 @@ const ShareCard = forwardRef(function ShareCard(props, ref) {
         showShareCard,
         setShowShareCard,
         myLink,
+        username, // ✅ ADD: Get username from context
+        isLoading, // ✅ ADD: Get loading state from context
     } = useContext(NavContext);
 
     useEffect(() => {
@@ -35,8 +37,18 @@ const ShareCard = forwardRef(function ShareCard(props, ref) {
         setCurrentPage(currentPage.slice(0, -1));
     }
 
-    // Don't render anything if the card is not shown, for performance
+    // ✅ COMPREHENSIVE CHECK: Don't render if data is not ready
     if (!showShareCard) {
+        return null;
+    }
+    
+    // Additional safety check - if data is not ready, don't render content
+    if (isLoading || !username || !myLink) {
+        console.warn("⚠️ ShareCard: Attempted to render but data not ready:", {
+            isLoading,
+            username: !!username,
+            myLink: !!myLink
+        });
         return null;
     }
 
@@ -180,4 +192,5 @@ const ShareCard = forwardRef(function ShareCard(props, ref) {
         </ShareContext.Provider>
     );
 });
+
 export default ShareCard;
