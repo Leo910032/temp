@@ -1,4 +1,4 @@
-// app/api/user/appearance/theme/route.js - FIXED
+// app/api/user/appearance/theme/route.js - FIXED with CV support
 
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
@@ -35,8 +35,6 @@ function isValidColor(color) {
     return hexRegex.test(color);
 }
 
-// In your /api/user/appearance/theme/route.js, replace the GET function with this:
-
 /**
  * GET /api/user/appearance/theme
  * Fetch user's appearance settings
@@ -56,9 +54,9 @@ export async function GET(request) {
 
         const userData = userDoc.data();
         
-        // ✅ FIXED: Include username and other essential fields for NavBar
+        // ✅ FIXED: Include CV document and all essential fields
         const appearanceData = {
-            // ✅ CRITICAL: Include username for NavBar functionality
+            // User profile fields
             username: userData.username || '',
             displayName: userData.displayName || '',
             bio: userData.bio || '',
@@ -78,12 +76,16 @@ export async function GET(request) {
             btnFontColor: userData.btnFontColor || '#000',
             btnShadowColor: userData.btnShadowColor || '#000',
             fontType: userData.fontType || 0,
+            
+            // ✅ CRITICAL FIX: Include CV document
+            cvDocument: userData.cvDocument || null
         };
 
         console.log('✅ API: Returning appearance data with username:', {
             hasUsername: !!appearanceData.username,
             username: appearanceData.username,
-            hasDisplayName: !!appearanceData.displayName
+            hasDisplayName: !!appearanceData.displayName,
+            hasCvDocument: !!appearanceData.cvDocument // ✅ Log CV document presence
         });
 
         return NextResponse.json(appearanceData);
@@ -113,39 +115,39 @@ export async function POST(request) {
         const userDocRef = adminDb.collection('AccountData').doc(uid);
         let updateData = {};
 
-       // In your POST function, update the allowedFields array:
-
-if (isBulkUpdate) {
-    // ✅ BULK UPDATE: Handle direct appearance data from the appearance page
-    console.log('Processing bulk appearance update for user:', uid);
-    
-    // ✅ FIXED: Include username in allowed fields
-    const allowedFields = [
-        'username', 'displayName', 'bio', 'profilePhoto', // ✅ User profile fields
-        'selectedTheme', 'themeFontColor', 'themeTextColour', 
-        'backgroundType', 'backgroundColor', 'backgroundImage', 
-        'backgroundVideo', 'gradientDirection', 'btnType', 
-        'btnColor', 'btnFontColor', 'btnShadowColor', 'fontType'
-    ];
-    
-    updateData = {};
-    for (const [key, value] of Object.entries(body)) {
-        if (allowedFields.includes(key)) {
-            // Validate colors if they're color fields
-            if (['backgroundColor', 'btnColor', 'btnFontColor', 'btnShadowColor', 'themeFontColor', 'themeTextColour'].includes(key)) {
-                if (value && !isValidColor(value)) {
-                    console.warn(`Invalid color format for ${key}: ${value}`);
-                    continue; // Skip invalid colors
+        if (isBulkUpdate) {
+            // ✅ BULK UPDATE: Handle direct appearance data from the appearance page
+            console.log('Processing bulk appearance update for user:', uid);
+            
+            // ✅ FIXED: Include cvDocument in allowed fields
+            const allowedFields = [
+                'username', 'displayName', 'bio', 'profilePhoto', // User profile fields
+                'selectedTheme', 'themeFontColor', 'themeTextColour', 
+                'backgroundType', 'backgroundColor', 'backgroundImage', 
+                'backgroundVideo', 'gradientDirection', 'btnType', 
+                'btnColor', 'btnFontColor', 'btnShadowColor', 'fontType',
+                'cvDocument' // ✅ CRITICAL: Allow CV document updates
+            ];
+            
+            updateData = {};
+            for (const [key, value] of Object.entries(body)) {
+                if (allowedFields.includes(key)) {
+                    // Validate colors if they're color fields
+                    if (['backgroundColor', 'btnColor', 'btnFontColor', 'btnShadowColor', 'themeFontColor', 'themeTextColour'].includes(key)) {
+                        if (value && !isValidColor(value)) {
+                            console.warn(`Invalid color format for ${key}: ${value}`);
+                            continue; // Skip invalid colors
+                        }
+                    }
+                    updateData[key] = value;
                 }
             }
-            updateData[key] = value;
-        }
-    }
 
-    if (Object.keys(updateData).length === 0) {
-        return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
-    }
-}else {
+            if (Object.keys(updateData).length === 0) {
+                return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
+            }
+
+        } else {
             // ✅ ACTION-BASED UPDATE: Handle individual theme actions (for backward compatibility)
             const { action, data } = body;
 
@@ -264,4 +266,4 @@ if (isBulkUpdate) {
 export async function PUT(request) {
     // Just redirect to POST for consistency
     return POST(request);
-}   
+}

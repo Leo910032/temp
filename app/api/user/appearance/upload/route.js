@@ -2,9 +2,14 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
 
+
+
+
+
+
 /**
- * Handle file uploads for profile images, background images, and videos
- * POST /api/appearance/upload
+ * Handle file uploads for profile images, background images, videos, and CV documents
+ * POST /api/user/appearance/upload
  */
 export async function POST(request) {
     try {
@@ -21,13 +26,13 @@ export async function POST(request) {
         // 2. Parse form data
         const formData = await request.formData();
         const file = formData.get('file');
-        const uploadType = formData.get('uploadType'); // 'profile', 'backgroundImage', 'backgroundVideo'
+        const uploadType = formData.get('uploadType'); // 'profile', 'backgroundImage', 'backgroundVideo', 'cv'
 
         if (!file) {
             return NextResponse.json({ error: 'No file provided' }, { status: 400 });
         }
 
-        if (!uploadType || !['profile', 'backgroundImage', 'backgroundVideo'].includes(uploadType)) {
+        if (!uploadType || !['profile', 'backgroundImage', 'backgroundVideo', 'cv'].includes(uploadType)) {
             return NextResponse.json({ error: 'Invalid upload type' }, { status: 400 });
         }
 
@@ -53,10 +58,12 @@ export async function POST(request) {
             case 'backgroundVideo':
                 storagePath = `backgroundVideo/${userId}/${fileName}`;
                 break;
+            case 'cv':
+                storagePath = `cvDocuments/${userId}/${fileName}`;
+                break;
         }
 
-        // 6. Upload to Firebase Storage using client SDK pattern for server
-        // ✅ FIXED: Moved dynamic imports inside the try block
+        // 6. Upload to Firebase Storage
         const { initializeApp: initClientApp, getApps: getClientApps } = await import('firebase/app');
         const { getStorage: getClientStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
         
@@ -99,11 +106,20 @@ export async function POST(request) {
                 break;
             case 'backgroundImage':
                 updateData.backgroundImage = downloadURL;
-                updateData.backgroundType = 'Image'; // Auto-switch to image background
+                updateData.backgroundType = 'Image';
                 break;
             case 'backgroundVideo':
                 updateData.backgroundVideo = downloadURL;
-                updateData.backgroundType = 'Video'; // Auto-switch to video background
+                updateData.backgroundType = 'Video';
+                break;
+            case 'cv':
+                updateData.cvDocument = {
+                    url: downloadURL,
+                    fileName: file.name, // Store original filename
+                    uploadDate: new Date().toISOString(),
+                    fileSize: file.size,
+                    fileType: file.type
+                };
                 break;
         }
 
@@ -112,8 +128,13 @@ export async function POST(request) {
         return NextResponse.json({
             success: true,
             downloadURL,
-            fileName,
+            fileName: uploadType === 'cv' ? file.name : fileName,
             uploadType,
+            fileInfo: uploadType === 'cv' ? {
+                originalName: file.name,
+                size: file.size,
+                type: file.type
+            } : null,
             message: 'File uploaded successfully'
         });
 
@@ -133,7 +154,7 @@ export async function POST(request) {
 
 /**
  * Delete uploaded files
- * DELETE /api/appearance/upload
+ * DELETE /api/user/appearance/upload
  */
 export async function DELETE(request) {
     try {
@@ -146,9 +167,9 @@ export async function DELETE(request) {
         const decodedToken = await adminAuth.verifyIdToken(token);
         const userId = decodedToken.uid;
 
-        const { deleteType } = await request.json(); // 'profile', 'backgroundImage', 'backgroundVideo'
+        const { deleteType } = await request.json(); // 'profile', 'backgroundImage', 'backgroundVideo', 'cv'
 
-        if (!deleteType || !['profile', 'backgroundImage', 'backgroundVideo'].includes(deleteType)) {
+        if (!deleteType || !['profile', 'backgroundImage', 'backgroundVideo', 'cv'].includes(deleteType)) {
             return NextResponse.json({ error: 'Invalid delete type' }, { status: 400 });
         }
 
@@ -165,6 +186,9 @@ export async function DELETE(request) {
                 break;
             case 'backgroundVideo':
                 updateData.backgroundVideo = '';
+                break;
+            case 'cv':
+                updateData.cvDocument = null;
                 break;
         }
 
@@ -186,13 +210,24 @@ function validateFile(file, uploadType) {
     const maxSizes = {
         profile: 5 * 1024 * 1024,        // 5MB for profile images
         backgroundImage: 10 * 1024 * 1024, // 10MB for background images
-        backgroundVideo: 50 * 1024 * 1024  // 50MB for background videos
+        backgroundVideo: 50 * 1024 * 1024, // 50MB for background videos
+        cv: 50 * 1024 * 1024              // 50MB for CV documents
     };
 
     const allowedTypes = {
         profile: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
         backgroundImage: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
-        backgroundVideo: ['video/mp4', 'video/webm', 'video/mov', 'video/avi']
+        backgroundVideo: ['video/mp4', 'video/webm', 'video/mov', 'video/avi'],
+        cv: [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain'
+        ]
     };
 
     // Check file size
