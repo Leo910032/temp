@@ -4,7 +4,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { updateThemeGradientDirection } from "@/lib/services/appearanceService";
 import { useContext, useState, useMemo } from "react";
-import { AppearanceContext } from "../page";
+import { AppearanceContext } from "../AppearanceContext";
 import { toast } from "react-hot-toast";
 import { useTranslation } from "@/lib/translation/useTranslation";
 
