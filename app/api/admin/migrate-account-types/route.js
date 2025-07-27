@@ -1,3 +1,4 @@
+/*
 // app/api/admin/migrate-account-types/route.js
 // ⚠️ ADMIN ONLY - Migration script to add accountType to existing users
 
@@ -164,3 +165,4 @@ export async function GET(request) {
         }, { status: 500 });
     }
 }
+    */
