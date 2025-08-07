@@ -4,6 +4,7 @@ import { HouseContext } from "../House";
 import Button from "../elements/Button";
 import Socials from "../elements/Socials";
 import { filterProperly } from "@/lib/utilities";
+import CVButton from '../elements/CVButton'; // ADD THIS IMPORT
 
 export default function MyLinks() {
     const { userData } = useContext(HouseContext);
@@ -73,6 +74,12 @@ export default function MyLinks() {
                     );
                 }
             })}
+            {userData?.cvDocument && (
+    <CVButton 
+        cvDocument={userData.cvDocument}
+        userData={userData}
+    />
+)}
             
             {/* ✅ FIXED: Better conditional rendering for bottom socials */}
             {socialPosition === 1 && activeSocials.length > 0 && (
@@ -81,5 +88,6 @@ export default function MyLinks() {
                 </div>
             )}
         </div>
+        
     );
 }

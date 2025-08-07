@@ -1,3 +1,4 @@
+//app/api/user/analytics/route.js
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
 

@@ -102,46 +102,80 @@ const generateWeeklyData = (dailyViews, dailyClicks, weeks) => {
     return data;
 };
 
-// Generate monthly data from first activity to now
+// ✅ COMPLETELY REWRITTEN: Generate monthly data from first activity to now
 const generateMonthlyData = (dailyViews, dailyClicks) => {
     const data = [];
-    const today = new Date();
     
-    // Find the earliest date with data
+    // ✅ FIXED: Get all dates with actual data
     const allDates = [...Object.keys(dailyViews), ...Object.keys(dailyClicks)]
         .filter(date => date && date.match(/^\d{4}-\d{2}-\d{2}$/))
         .sort();
     
-    if (allDates.length === 0) return [];
+    console.log('🗓️ All dates with data:', allDates);
+    
+    if (allDates.length === 0) {
+        console.log('❌ No valid dates found in data');
+        return [];
+    }
     
     const earliestDate = new Date(allDates[0]);
-    const monthsToShow = Math.min(12, Math.ceil((today - earliestDate) / (1000 * 60 * 60 * 24 * 30))); // Max 12 months
+    const latestDate = new Date(allDates[allDates.length - 1]);
+    const today = new Date();
     
-    for (let monthsBack = monthsToShow - 1; monthsBack >= 0; monthsBack--) {
-        const monthDate = new Date(today.getFullYear(), today.getMonth() - monthsBack, 1);
-        const nextMonth = new Date(today.getFullYear(), today.getMonth() - monthsBack + 1, 1);
+    console.log('🗓️ Date range:', {
+        earliest: earliestDate.toISOString().split('T')[0],
+        latest: latestDate.toISOString().split('T')[0],
+        today: today.toISOString().split('T')[0]
+    });
+    
+    // ✅ FIXED: Create a set of unique year-month combinations from actual data
+    const monthsWithData = new Set();
+    
+    // Add months that actually have data
+    allDates.forEach(dateStr => {
+        const date = new Date(dateStr);
+        const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+        monthsWithData.add(monthKey);
+    });
+    
+    // Convert to sorted array
+    const sortedMonths = Array.from(monthsWithData).sort();
+    console.log('📅 Months with data:', sortedMonths);
+    
+    // ✅ FIXED: Process each month that has data
+    sortedMonths.forEach(monthKey => {
+        const [year, month] = monthKey.split('-').map(Number);
+        const monthDate = new Date(year, month - 1, 1);
+        const nextMonth = new Date(year, month, 1);
         
         let monthViews = 0;
         let monthClicks = 0;
         
-        // Sum up the month's data
-        const currentDate = new Date(monthDate);
-        while (currentDate < nextMonth && currentDate <= today) {
-            const dateKey = currentDate.toISOString().split('T')[0];
-            monthViews += dailyViews[dateKey] || 0;
-            monthClicks += dailyClicks[dateKey] || 0;
-            currentDate.setDate(currentDate.getDate() + 1);
-        }
-        
-        data.push({
-            name: monthDate.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }),
-            views: monthViews,
-            clicks: monthClicks,
-            month: monthDate.getMonth(),
-            year: monthDate.getFullYear()
+        // Sum up all days in this month that have data
+        allDates.forEach(dateStr => {
+            const date = new Date(dateStr);
+            if (date >= monthDate && date < nextMonth) {
+                monthViews += dailyViews[dateStr] || 0;
+                monthClicks += dailyClicks[dateStr] || 0;
+            }
         });
-    }
+        
+        console.log(`📊 ${monthKey}: ${monthViews} views, ${monthClicks} clicks`);
+        
+        // Only add months that actually have data
+        if (monthViews > 0 || monthClicks > 0) {
+            data.push({
+                name: monthDate.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }),
+                fullMonth: monthKey,
+                views: monthViews,
+                clicks: monthClicks,
+                month: monthDate.getMonth(),
+                year: monthDate.getFullYear()
+            });
+        }
+    });
     
+    console.log('✅ Final monthly data:', data);
     return data;
 };
 
@@ -151,20 +185,25 @@ export default function PerformanceChart({ analytics, selectedPeriod = 'week' })
     // ✅ ENHANCED: Dynamic chart data based on selected period
     const chartData = useMemo(() => {
         if (!analytics?.dailyViews || !analytics?.dailyClicks) {
+            console.log('❌ No analytics data available:', { 
+                hasAnalytics: !!analytics, 
+                hasDailyViews: !!analytics?.dailyViews,
+                hasDailyClicks: !!analytics?.dailyClicks
+            });
             return [];
         }
 
         const dailyViews = analytics.dailyViews || {};
         const dailyClicks = analytics.dailyClicks || {};
 
+        console.log(`📊 Generating chart data for period: ${selectedPeriod}`);
+        console.log('📊 Available daily views:', Object.keys(dailyViews));
+        console.log('📊 Available daily clicks:', Object.keys(dailyClicks));
+
         switch (selectedPeriod) {
             case 'today':
-                // For today: Show hourly data (simulated from daily data since we don't have hourly)
-                // Note: This is a placeholder implementation - real hourly data would require API changes
-                return generateHourlyData(dailyViews, dailyClicks);
-                
             case 'week':
-                // For week: Show daily data for last 7 days
+                // ✅ CHANGED: Both 'today' and 'week' show daily data for last 7 days
                 return generateDailyData(dailyViews, dailyClicks, 7);
                 
             case 'month':
@@ -173,7 +212,9 @@ export default function PerformanceChart({ analytics, selectedPeriod = 'week' })
                 
             case 'all':
                 // For all time: Show monthly data from first activity
-                return generateMonthlyData(dailyViews, dailyClicks);
+                const monthlyData = generateMonthlyData(dailyViews, dailyClicks);
+                console.log('📊 Generated monthly data for all time:', monthlyData);
+                return monthlyData;
                 
             default:
                 return generateDailyData(dailyViews, dailyClicks, 7);
@@ -181,12 +222,20 @@ export default function PerformanceChart({ analytics, selectedPeriod = 'week' })
     }, [analytics, selectedPeriod]);
 
     // Check if there is any actual data to display
-    const hasData = useMemo(() => chartData.some(item => item.views > 0 || item.clicks > 0), [chartData]);
+    const hasData = useMemo(() => {
+        const result = chartData.some(item => item.views > 0 || item.clicks > 0);
+        console.log(`📊 Chart has data: ${result}`, { 
+            chartDataLength: chartData.length,
+            selectedPeriod,
+            firstItem: chartData[0]
+        });
+        return result;
+    }, [chartData, selectedPeriod]);
 
     // Get appropriate title based on period
     const getChartTitle = () => {
         const titles = {
-            today: t('analytics.performance_today') || 'Today\'s Performance (2-hour intervals)',
+            today: t('analytics.performance_today') || 'Today\'s Performance (7-day view)',
             week: t('analytics.performance_week') || 'Weekly Performance (daily)',
             month: t('analytics.performance_month') || 'Monthly Performance (weekly)',
             all: t('analytics.performance_all_time') || 'All-Time Performance (monthly)'
@@ -197,7 +246,7 @@ export default function PerformanceChart({ analytics, selectedPeriod = 'week' })
     // Get appropriate empty state message
     const getEmptyStateMessage = () => {
         const messages = {
-            today: 'No activity recorded for today yet.',
+            today: 'No activity recorded in the last 7 days.',
             week: 'No data to display for the last 7 days.',
             month: 'No data to display for the last month.',
             all: 'No historical data available yet.'
@@ -211,9 +260,9 @@ export default function PerformanceChart({ analytics, selectedPeriod = 'week' })
                 <h2 className="text-sm font-semibold text-gray-900">
                     {getChartTitle()}
                 </h2>
-                {selectedPeriod === 'today' && (
-                    <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                        ⚠️ Simulated hourly data
+                {selectedPeriod === 'all' && chartData.length > 0 && (
+                    <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                        📊 {chartData.length} months with data
                     </span>
                 )}
             </div>
@@ -226,6 +275,16 @@ export default function PerformanceChart({ analytics, selectedPeriod = 'week' })
                         </svg>
                         <p className="text-sm">{getEmptyStateMessage()}</p>
                         <p className="text-xs mt-1">Share your profile to get views and clicks!</p>
+                        {selectedPeriod === 'all' && (
+                            <div className="mt-2 text-xs text-gray-400">
+                                <p>Debug info:</p>
+                                <p>Chart data length: {chartData.length}</p>
+                                <p>Analytics available: {analytics ? 'Yes' : 'No'}</p>
+                                {analytics && (
+                                    <p>Daily views keys: {Object.keys(analytics.dailyViews || {}).length}</p>
+                                )}
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <ResponsiveContainer width="100%" height="100%">
@@ -264,7 +323,6 @@ export default function PerformanceChart({ analytics, selectedPeriod = 'week' })
                                     name === 'views' ? (t('analytics.views') || 'Views') : (t('analytics.clicks') || 'Clicks')
                                 ]}
                                 labelFormatter={(label) => {
-                                    if (selectedPeriod === 'today') return `Time: ${label}`;
                                     if (selectedPeriod === 'month') return `Week: ${label}`;
                                     if (selectedPeriod === 'all') return `Month: ${label}`;
                                     return `Date: ${label}`;
