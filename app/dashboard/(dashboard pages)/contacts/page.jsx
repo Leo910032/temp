@@ -1,6 +1,6 @@
-// app/dashboard/(dashboard pages)/contacts/page.jsx - ENHANCED VERSION WITH GROUPS
+// app/dashboard/(dashboard pages)/contacts/page.jsx - FIXED VERSION
 "use client"
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { toast } from 'react-hot-toast';
 import dynamic from 'next/dynamic';
@@ -22,13 +22,12 @@ import {
     getTeamMembersForSharing,
     shareContactsWithTeam,
     getContactStats,
-    // New group management functions
+    // Enhanced group management functions
     getContactGroups,
     createContactGroup,
     updateContactGroup,
     deleteContactGroup,
-    addContactsToGroup,
-    removeContactsFromGroup,
+    // Legacy auto-groups function (we'll enhance this)
     generateAutoGroups
 } from '@/lib/services/contactsService';
 
@@ -46,32 +45,7 @@ function MapLoadingComponent() {
     );
 }
 
-export default function ContactsPage() {
-
-    const [showTestPanel, setShowTestPanel] = useState(false);
-    const handleContactsGenerated = async (result) => {
-    // Refresh contacts and groups after generation
-    await Promise.all([
-        loadContacts(),
-        loadGroups()
-    ]);
-    
-    // Trigger auto-grouping if enabled
-    if (autoGroupsEnabled && result.data.generated > 10) {
-        setTimeout(() => {
-            generateAutomaticGroups();
-        }, 2000);
-    }
-    
-    toast.success(
-        `✅ Generated ${result.data.generated} test contacts!\n` +
-        `📊 ${result.data.insights.contactsFromEvents} from events, ` +
-        `📍 ${result.data.insights.contactsWithLocation} with location`,
-        { duration: 5000 }
-    );
-};
-
-
+export default function EnhancedContactsPage() {
     const { t } = useTranslation();
     const [contacts, setContacts] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -95,12 +69,15 @@ export default function ContactsPage() {
     const [editingContact, setEditingContact] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
     
-    // ✅ NEW: Group management states
+    // Group management states
     const [groups, setGroups] = useState([]);
     const [selectedGroupIds, setSelectedGroupIds] = useState([]);
     const [showGroupManager, setShowGroupManager] = useState(false);
-    const [autoGroupsEnabled, setAutoGroupsEnabled] = useState(true);
     const [groupsLoading, setGroupsLoading] = useState(false);
+    const [autoGroupsEnabled, setAutoGroupsEnabled] = useState(true);
+
+    // Test panel state
+    const [showTestPanel, setShowTestPanel] = useState(false);
     
     // Stats and pagination
     const [contactStats, setContactStats] = useState({
@@ -115,7 +92,7 @@ export default function ContactsPage() {
         hasMore: false
     });
 
-    // ✅ NEW: Enhanced filter contacts based on status, search term, and groups
+    // Enhanced filter contacts based on status, search term, and groups
     const filteredContacts = contacts.filter(contact => {
         const matchesFilter = filter === 'all' || contact.status === filter;
         const matchesSearch = !searchTerm || 
@@ -135,7 +112,7 @@ export default function ContactsPage() {
         return matchesFilter && matchesSearch && matchesGroup;
     });
 
-    // ✅ NEW: Load contact groups
+    // Load contact groups
     const loadGroups = async () => {
         try {
             setGroupsLoading(true);
@@ -163,7 +140,7 @@ export default function ContactsPage() {
         }
     };
 
-    // ✅ NEW: Generate automatic groups
+    // Generate automatic groups
     const generateAutomaticGroups = async () => {
         try {
             setGroupsLoading(true);
@@ -188,7 +165,7 @@ export default function ContactsPage() {
         }
     };
 
-    // ✅ NEW: Handle group creation from map
+    // Handle group creation from map
     const handleGroupCreation = async (groupData) => {
         try {
             console.log('📝 Creating new group:', groupData);
@@ -209,7 +186,7 @@ export default function ContactsPage() {
         }
     };
 
-    // ✅ NEW: Handle group toggle (show/hide on map)
+    // Handle group toggle (show/hide on map)
     const handleGroupToggle = (groupId) => {
         setSelectedGroupIds(prev => {
             if (prev.includes(groupId)) {
@@ -220,7 +197,7 @@ export default function ContactsPage() {
         });
     };
 
-    // ✅ NEW: Delete group
+    // Delete group
     const handleDeleteGroup = async (groupId) => {
         const group = groups.find(g => g.id === groupId);
         if (!group) return;
@@ -306,7 +283,30 @@ export default function ContactsPage() {
         }
     };
 
-    // ✅ ENHANCED: Initial load with groups
+    // Handle test contacts generation
+    const handleContactsGenerated = async (result) => {
+        // Refresh contacts and groups after generation
+        await Promise.all([
+            loadContacts(),
+            loadGroups()
+        ]);
+        
+        // Trigger auto-grouping if enabled
+        if (autoGroupsEnabled && result.data.generated > 10) {
+            setTimeout(() => {
+                generateAutomaticGroups();
+            }, 2000);
+        }
+        
+        toast.success(
+            `✅ Generated ${result.data.generated} test contacts!\n` +
+            `📊 ${result.data.insights.contactsFromEvents} from events, ` +
+            `📍 ${result.data.insights.contactsWithLocation} with location`,
+            { duration: 5000 }
+        );
+    };
+
+    // Enhanced initialization with groups
     useEffect(() => {
         const initializeData = async () => {
             await Promise.all([
@@ -340,7 +340,7 @@ export default function ContactsPage() {
             // Reload contacts to show the new one
             await loadContacts();
             
-            // ✅ NEW: Check for auto-grouping opportunities
+            // Check for auto-grouping opportunities
             if (autoGroupsEnabled) {
                 setTimeout(() => {
                     generateAutomaticGroups();
@@ -417,7 +417,7 @@ export default function ContactsPage() {
             setShowEditModal(false);
             setEditingContact(null);
 
-            // ✅ NEW: Check for auto-grouping opportunities after edit
+            // Check for auto-grouping opportunities after edit
             if (autoGroupsEnabled) {
                 setTimeout(() => {
                     generateAutomaticGroups();
@@ -465,7 +465,7 @@ export default function ContactsPage() {
             
             toast.success(t('contacts.contact_deleted') || 'Contact deleted');
 
-            // ✅ NEW: Update groups after contact deletion
+            // Update groups after contact deletion
             await loadGroups();
         } catch (error) {
             console.error('Error deleting contact:', error);
@@ -522,7 +522,7 @@ export default function ContactsPage() {
         }
     };
 
-    // ✅ NEW: Get enhanced counts including groups
+    // Get enhanced counts including groups
     const counts = {
         all: contactStats.total,
         new: contactStats.byStatus.new,
@@ -557,14 +557,17 @@ export default function ContactsPage() {
                 }}
                 onSave={handleSaveEditedContact}
             />
-             <div className="p-3 sm:p-4 pb-0">
-                <ContactTestPanel 
-                    onContactsGenerated={handleContactsGenerated}
-                    className="mb-4 shadow-lg border-2 border-orange-200"
-                />
-            </div>
+            
+            {showTestPanel && (
+                <div className="p-3 sm:p-4 pb-0">
+                    <ContactTestPanel 
+                        onContactsGenerated={handleContactsGenerated}
+                        className="mb-4 shadow-lg border-2 border-orange-200"
+                    />
+                </div>
+            )}
 
-            {/* ✅ NEW: Group Manager Modal */}
+            {/* Group Manager Modal */}
             <GroupManagerModal
                 isOpen={showGroupManager}
                 onClose={() => setShowGroupManager(false)}
@@ -626,9 +629,8 @@ export default function ContactsPage() {
                     autoGroupsEnabled={autoGroupsEnabled}
                     onGenerateAutoGroups={generateAutomaticGroups}
                     groupsLoading={groupsLoading}
-
-                     showTestPanel={showTestPanel}
-                onToggleTestPanel={() => setShowTestPanel(!showTestPanel)}
+                    showTestPanel={showTestPanel}
+                    onToggleTestPanel={() => setShowTestPanel(!showTestPanel)}
                 />
 
                 {/* Enhanced Filters */}
@@ -707,7 +709,7 @@ const ContactsMap = dynamic(() => import('./components/ContactsMap'), {
     loading: () => <MapLoadingComponent />
 });
 
-// ✅ ENHANCED: Header component with group management
+// Enhanced Header component with group management
 function ContactsHeader({ 
     teamSharingEnabled, 
     selectionMode, 
@@ -746,21 +748,23 @@ function ContactsHeader({
                 
                 <div className="flex flex-col gap-2 sm:items-end">
                     <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                        {/* Group Manager button */}
+                        {/* Test Panel button */}
                         <button
-                                onClick={onToggleTestPanel}
-                                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors text-sm font-medium whitespace-nowrap flex-shrink-0 ${
-                                    showTestPanel 
-                                        ? 'bg-orange-100 border border-orange-300 text-orange-800 hover:bg-orange-150' 
-                                        : 'bg-orange-600 text-white hover:bg-orange-700'
-                                }`}
-                            >
-                                <span>🧪</span>
-                                <span className="hidden xs:inline">
-                                    {showTestPanel ? 'Hide Test Panel' : 'Test Panel'}
-                                </span>
-                                <span className="xs:hidden">Test</span>
-                            </button>
+                            onClick={onToggleTestPanel}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors text-sm font-medium whitespace-nowrap flex-shrink-0 ${
+                                showTestPanel 
+                                    ? 'bg-orange-100 border border-orange-300 text-orange-800 hover:bg-orange-150' 
+                                    : 'bg-orange-600 text-white hover:bg-orange-700'
+                            }`}
+                        >
+                            <span>🧪</span>
+                            <span className="hidden xs:inline">
+                                {showTestPanel ? 'Hide Test Panel' : 'Test Panel'}
+                            </span>
+                            <span className="xs:hidden">Test</span>
+                        </button>
+
+                        {/* Group Manager button */}
                         <button
                             onClick={onOpenGroupManager}
                             className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium whitespace-nowrap flex-shrink-0"
@@ -867,7 +871,7 @@ function ContactsHeader({
     );
 }
 
-// ✅ ENHANCED: Mobile filters with group support
+// Enhanced Mobile filters with group support
 function MobileFilters({ 
     filter, 
     setFilter, 
@@ -992,11 +996,7 @@ function MobileFilters({
                         <span className="text-sm font-medium text-gray-700">Select Groups to View</span>
                         {activeGroupsCount > 0 && (
                             <button
-                                onClick={() => onGroupToggle && groups.forEach(group => {
-                                    if (selectedGroupIds.includes(group.id)) {
-                                        onGroupToggle(group.id);
-                                    }
-                                })}
+                                onClick={() => setSelectedGroupIds([])}
                                 className="text-xs text-purple-600 hover:text-purple-800"
                             >
                                 Clear All
@@ -1050,7 +1050,7 @@ function getGroupColor(groupId, groups) {
     return colors[index % colors.length] || '#6B7280';
 }
 
-// ✅ ENHANCED: Contacts list with group indicators
+// Enhanced Contacts list with group indicators
 function ContactsList({ 
     contacts, 
     selectionMode, 
@@ -1133,7 +1133,7 @@ function ContactsList({
     );
 }
 
-// ✅ ENHANCED: Contact card with group indicators
+// Enhanced Contact card with group indicators
 function ContactCard({ contact, onEdit, onStatusUpdate, onDelete, onContactAction, onMapView, groups = [] }) {
     const { t } = useTranslation();
     const [expanded, setExpanded] = useState(false);
@@ -1421,11 +1421,10 @@ function ContactCard({ contact, onEdit, onStatusUpdate, onDelete, onContactActio
     );
 }
 
-// ✅ NEW: Group Manager Modal Component
+// Group Manager Modal Component
 function GroupManagerModal({ isOpen, onClose, groups, contacts, onCreateGroup, onDeleteGroup, onGenerateAutoGroups, loading }) {
     const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState('overview');
-    const [showCreateForm, setShowCreateForm] = useState(false);
     const [newGroupName, setNewGroupName] = useState('');
     const [newGroupType, setNewGroupType] = useState('custom');
     const [selectedContacts, setSelectedContacts] = useState([]);
@@ -1453,7 +1452,6 @@ function GroupManagerModal({ isOpen, onClose, groups, contacts, onCreateGroup, o
             setNewGroupName('');
             setNewGroupType('custom');
             setSelectedContacts([]);
-            setShowCreateForm(false);
             setActiveTab('overview');
         } catch (error) {
             // Error handling is done in parent component
