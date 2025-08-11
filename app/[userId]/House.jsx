@@ -1,4 +1,4 @@
-// File: app/[userId]/House.jsx
+// File: app/[userId]/House.jsx - UPDATED WITH CONTACT EXCHANGE BUTTONS
 
 "use client"
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
@@ -11,7 +11,10 @@ import MyLinks from "./components/MyLinks";
 import SupportBanner from "./components/SupportBanner";
 import PublicLanguageSwitcher from "./components/PublicLanguageSwitcher";
 import SensitiveWarning from "./components/SensitiveWarning";
-import { trackView } from '@/lib/services/analyticsService'; // ✅ IMPORT the new analytics service
+import { trackView } from '@/lib/services/analyticsService';
+
+// ✅ NEW: Import contact exchange components
+import ExchangeButton from "./components/ExchangeButton";
 
 export const HouseContext = React.createContext(null);
 
@@ -21,9 +24,10 @@ export default function House({ initialUserData }) {
     const [showSensitiveWarning, setShowSensitiveWarning] = useState(initialUserData?.sensitiveStatus || false);
     const [isOnline, setIsOnline] = useState(true);
     const [retryCount, setRetryCount] = useState(0);
-    const [viewTracked, setViewTracked] = useState(false); // ✅ State to prevent duplicate view tracking
+    const [viewTracked, setViewTracked] = useState(false);
     const updateInProgress = useRef(false);
-   // ✅ NEW: Check for preview mode once on component mount
+
+    // Check for preview mode once on component mount
     const isPreviewMode = useMemo(() => {
         if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
@@ -31,6 +35,20 @@ export default function House({ initialUserData }) {
         }
         return false;
     }, []);
+
+    // ✅ NEW: Check if contact exchange should be shown
+    const shouldShowContactExchange = useMemo(() => {
+        // Don't show in preview mode
+        if (isPreviewMode) return false;
+        
+        // Check if user has contact exchange enabled (you can add this setting to user data)
+        const contactExchangeEnabled = userData?.contactExchangeEnabled !== false; // Default to true
+        
+        // Check if user has basic contact info
+        const hasContactInfo = userData?.displayName || userData?.email;
+        
+        return contactExchangeEnabled && hasContactInfo;
+    }, [isPreviewMode, userData?.contactExchangeEnabled, userData?.displayName, userData?.email]);
 
     // Effect for real-time data listening
     useEffect(() => {
@@ -72,16 +90,13 @@ export default function House({ initialUserData }) {
         };
     }, [userData?.uid, retryCount]);
 
-      // ✅ CORRECTED: Effect for tracking the profile view event
+    // Effect for tracking the profile view event
     useEffect(() => {
-        // Condition 1: Don't track if already tracked.
         if (viewTracked) return;
-        // Condition 2: Don't track if in preview mode.
         if (isPreviewMode) {
-            console.log(" G-Analytics: View tracking skipped, PREVIEW MODE is active.");
+            console.log("📊 Analytics: View tracking skipped, PREVIEW MODE is active.");
             return;
         }
-        // Condition 3: Ensure we have the necessary data.
         if (userData?.uid && userData?.username) {
             const timer = setTimeout(() => {
                 trackView(userData.uid, userData.username);
@@ -89,7 +104,7 @@ export default function House({ initialUserData }) {
             }, 1500);
             return () => clearTimeout(timer);
         }
-    }, [viewTracked, isPreviewMode, userData?.uid, userData?.username]); // Dependencies ensure this runs only when needed
+    }, [viewTracked, isPreviewMode, userData?.uid, userData?.username]);
 
     // Effect for online/offline status
     useEffect(() => {
@@ -141,6 +156,37 @@ export default function House({ initialUserData }) {
                             <ProfilePic />
                             <UserInfo />
                             <MyLinks />
+                            
+                            {/* ✅ NEW: Contact Exchange Section */}
+                            {shouldShowContactExchange && (
+                                <div className="w-full max-w-lg px-4 mt-6 space-y-3">
+                                    {/* Section title */}
+                                    <div className="text-center mb-4">
+                                        <h3 className="text-lg font-semibold text-gray-800 mb-1">
+                                            🤝 Connect with Me
+                                        </h3>
+                                        <p className="text-sm text-gray-600">
+                                            Exchange contact information or save my details
+                                        </p>
+                                    </div>
+                                    
+                                    {/* Contact Exchange Buttons */}
+                                    <div className="space-y-3">
+                                        {/* Exchange Contact Button */}
+                                        <ExchangeButton 
+                                            username={userData.username}
+                                            userInfo={{
+                                                userId: userData.uid,
+                                                displayName: userData.displayName,
+                                                email: userData.email
+                                            }}
+                                            userId={userData.uid}
+                                        />
+                                        
+                                      
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                     <SupportBanner />
