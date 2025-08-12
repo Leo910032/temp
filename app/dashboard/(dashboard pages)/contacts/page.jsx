@@ -548,6 +548,15 @@ export default function EnhancedContactsPage() {
     return (
         <div className="flex-1 py-2 flex flex-col max-h-full overflow-y-auto pb-20">
             {/* Edit Contact Modal */}
+
+               {showTestPanel && (
+                <div className="p-3 sm:p-4 pb-0">
+                    <ContactTestPanel 
+                        onContactsGenerated={handleContactsGenerated}
+                        className="mb-4 shadow-lg border-2 border-orange-200"
+                    />
+                </div>
+            )}
             <EditContactModal
                 contact={editingContact}
                 isOpen={showEditModal}
@@ -558,14 +567,7 @@ export default function EnhancedContactsPage() {
                 onSave={handleSaveEditedContact}
             />
             
-            {showTestPanel && (
-                <div className="p-3 sm:p-4 pb-0">
-                    <ContactTestPanel 
-                        onContactsGenerated={handleContactsGenerated}
-                        className="mb-4 shadow-lg border-2 border-orange-200"
-                    />
-                </div>
-            )}
+         
 
             {/* Group Manager Modal */}
             <GroupManagerModal
