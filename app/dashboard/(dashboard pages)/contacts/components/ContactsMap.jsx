@@ -1,4 +1,4 @@
-// components/ContactsMap.jsx - FINAL FIXED VERSION - No Infinite Loops
+// components/ContactsMap.jsx - Enhanced with Group Clustering Visualization
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
@@ -11,8 +11,6 @@ import { createPlacesApiClient } from '@/lib/services/placesApiClient';
 // Cache keys and storage
 const CACHE_PREFIX = 'contacts_map_';
 const EVENTS_CACHE_KEY = `${CACHE_PREFIX}events`;
-const MARKERS_CACHE_KEY = `${CACHE_PREFIX}markers`;
-const GROUPS_CACHE_KEY = `${CACHE_PREFIX}groups`;
 
 export default function ContactsMap({ 
     contacts = [], 
@@ -28,26 +26,25 @@ export default function ContactsMap({
     const { t } = useTranslation();
     const mapRef = useRef(null);
     const mapInstanceRef = useRef(null);
-    const markersRef = useRef([]);
-    const eventMarkersRef = useRef([]);
-    const clustererRef = useRef(null);
+    const groupClusterManagerRef = useRef(null);
     const placesClientRef = useRef(null);
     
     // State management
     const [isLoaded, setIsLoaded] = useState(false);
     const [error, setError] = useState(null);
-    const [showLegend, setShowLegend] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const [showGroupModal, setShowGroupModal] = useState(false);
     const [selectedMarkers, setSelectedMarkers] = useState([]);
     const [isSelectingMode, setIsSelectingMode] = useState(false);
     const [nearbyEvents, setNearbyEvents] = useState([]);
-    const [eventClusters, setEventClusters] = useState([]);
     const [loadingEvents, setLoadingEvents] = useState(false);
-    const [showFilters, setShowFilters] = useState(false);
     const [suggestedGroups, setSuggestedGroups] = useState([]);
     const [showAutoGroupSuggestions, setShowAutoGroupSuggestions] = useState(false);
-    const [cacheStats, setCacheStats] = useState({ hits: 0, misses: 0 });
+    const [currentZoom, setCurrentZoom] = useState(12);
+    const [showFilters, setShowFilters] = useState(false);
+    const [showLegend, setShowLegend] = useState(false);
+    const [selectedContact, setSelectedContact] = useState(null);
+    const [showContactProfile, setShowContactProfile] = useState(false);
     
     // Filter state
     const [filters, setFilters] = useState({
@@ -58,16 +55,10 @@ export default function ContactsMap({
         dateRange: 'all'
     });
 
-    // References to track processed data and prevent duplicate calls
-    const lastProcessedLocationsRef = useRef(null);
-    const isProcessingEventsRef = useRef(false);
-
-    // Initialize Places API client
+    // Debug effect to track state changes
     useEffect(() => {
-        if (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && !placesClientRef.current) {
-            placesClientRef.current = createPlacesApiClient(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY);
-        }
-    }, []);
+        console.log('📊 Modal state changed:', { showContactProfile, selectedContact: selectedContact?.name });
+    }, [showContactProfile, selectedContact]);
 
     // Check if device is mobile
     useEffect(() => {
@@ -81,7 +72,7 @@ export default function ContactsMap({
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // Memoized filtered contacts for performance
+    // Memoized filtered contacts
     const filteredContacts = useMemo(() => {
         return contacts.filter(contact => {
             // Group filter
@@ -104,38 +95,10 @@ export default function ContactsMap({
                 if (filters.hasLocation === 'yes' && !hasLocation) return false;
                 if (filters.hasLocation === 'no' && hasLocation) return false;
             }
-            if (filters.hasEvent !== 'all') {
-                const hasEvent = contact.eventInfo || nearbyEvents.some(event => 
-                    event.contactsNearby && event.contactsNearby.some(c => c.id === contact.id)
-                );
-                if (filters.hasEvent === 'yes' && !hasEvent) return false;
-                if (filters.hasEvent === 'no' && hasEvent) return false;
-            }
-            if (filters.dateRange !== 'all') {
-                const contactDate = new Date(contact.submittedAt || contact.createdAt);
-                const now = new Date();
-                let cutoffDate;
-
-                switch (filters.dateRange) {
-                    case 'today':
-                        cutoffDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                        break;
-                    case 'week':
-                        cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                        break;
-                    case 'month':
-                        cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-                        break;
-                    default:
-                        cutoffDate = null;
-                }
-
-                if (cutoffDate && contactDate < cutoffDate) return false;
-            }
 
             return true;
         });
-    }, [contacts, selectedGroupIds, groups, filters, nearbyEvents]);
+    }, [contacts, selectedGroupIds, groups, filters]);
 
     // Memoized contacts with location
     const contactsWithLocation = useMemo(() => {
@@ -148,448 +111,685 @@ export default function ContactsMap({
         );
     }, [filteredContacts]);
 
-    // ============= STABLE UTILITY FUNCTIONS =============
-    
-    // Helper function for deduplicating contact locations
-    const deduplicateContactLocations = useCallback((locations) => {
-        const uniqueLocations = {};
-
-        locations.forEach(contact => {
-            if (contact.location?.latitude && contact.location?.longitude) {
-                const key = `${contact.location.latitude.toFixed(4)},${contact.location.longitude.toFixed(4)}`;
-                
-                if (!uniqueLocations[key]) {
-                    uniqueLocations[key] = {
-                        location: {
-                            latitude: contact.location.latitude,
-                            longitude: contact.location.longitude,
-                        },
-                        contacts: []
-                    };
-                }
-                uniqueLocations[key].contacts.push(contact);
+    // Memoized filtered groups
+    const filteredGroups = useMemo(() => {
+        return groups.filter(group => {
+            if (selectedGroupIds.length > 0) {
+                return selectedGroupIds.includes(group.id);
             }
-        });
-
-        return Object.values(uniqueLocations);
-    }, []);
-
-    // Cache management functions - COMPLETELY STABLE
-    const getCachedData = useCallback((key, maxAge = 30 * 60 * 1000) => {
-        try {
-            const cached = localStorage.getItem(key);
-            if (!cached) return null;
-            
-            const data = JSON.parse(cached);
-            if (Date.now() - data.timestamp > maxAge) {
-                localStorage.removeItem(key);
-                return null;
-            }
-            
-            // Use functional update to avoid closure issues
-            setCacheStats(prev => ({ ...prev, hits: prev.hits + 1 }));
-            return data.payload;
-        } catch (error) {
-            console.warn('Cache read error:', error);
-            return null;
-        }
-    }, []); // Empty dependency array - completely stable
-
-    const setCachedData = useCallback((key, data) => {
-        try {
-            const cacheEntry = {
-                payload: data,
-                timestamp: Date.now()
-            };
-            localStorage.setItem(key, JSON.stringify(cacheEntry));
-            // Use functional update to avoid closure issues
-            setCacheStats(prev => ({ ...prev, misses: prev.misses + 1 }));
-        } catch (error) {
-            console.warn('Cache write error:', error);
-        }
-    }, []); // Empty dependency array - completely stable
-
-    // ============= STABLE EVENT PROCESSING FUNCTIONS =============
-
-    const inferCityFromCoordinates = useCallback(async (lat, lng) => {
-        return null; // Placeholder
-    }, []);
-
-    const getOptimalEventTypes = useCallback((contacts) => {
-        const companies = contacts.map(c => c.company).filter(Boolean);
-        const hasCorpContacts = companies.length > 0;
-        
-        if (hasCorpContacts) {
-            return ['convention_center', 'university', 'hotel', 'tourist_attraction'];
-        }
-        
-        return ['convention_center', 'university', 'stadium', 'performing_arts_theater', 'community_center', 'museum', 'art_gallery', 'tourist_attraction'];
-    }, []);
-
-    const analyzeEventVenue = useCallback((place, searchTypes, searchMethod = 'nearby') => {
-        let score = 0;
-        const indicators = [];
-        
-        const typeScoring = {
-            'convention_center': 0.9,
-            'event_venue': 0.8,
-            'concert_hall': 0.8,
-            'university': 0.6,
-            'stadium': 0.7,
-            'performing_arts_theater': 0.6,
-            'community_center': 0.5,
-            'museum': 0.4,
-            'art_gallery': 0.4,
-            'tourist_attraction': 0.4
-        };
-
-        let typeScore = 0;
-        if (place.types) {
-            place.types.forEach(type => {
-                if (typeScoring[type]) {
-                    typeScore = Math.max(typeScore, typeScoring[type]);
-                    indicators.push(`venue_type_${type}`);
-                }
-            });
-        }
-        score += typeScore;
-
-        const eventKeywords = {
-            high: ['conference', 'convention', 'expo', 'exhibition', 'summit', 'congress'],
-            medium: ['center', 'hall', 'forum', 'symposium', 'seminar', 'workshop'],
-            low: ['pavilion', 'arena', 'theater', 'gallery', 'community']
-        };
-
-        const name = (place.displayName?.text || place.name || '').toLowerCase();
-        
-        eventKeywords.high.forEach(keyword => {
-            if (name.includes(keyword)) {
-                score += 0.3;
-                indicators.push(`high_keyword_${keyword}`);
-            }
-        });
-
-        eventKeywords.medium.forEach(keyword => {
-            if (name.includes(keyword)) {
-                score += 0.2;
-                indicators.push(`medium_keyword_${keyword}`);
-            }
-        });
-
-        eventKeywords.low.forEach(keyword => {
-            if (name.includes(keyword)) {
-                score += 0.1;
-                indicators.push(`low_keyword_${keyword}`);
-            }
-        });
-
-        if (place.businessStatus === 'OPERATIONAL') {
-            score += 0.15;
-            indicators.push('operational');
-        }
-
-        if (place.rating && place.userRatingCount) {
-            if (place.rating >= 4.0 && place.userRatingCount >= 200) {
-                score += 0.15;
-                indicators.push('highly_rated_popular');
-            } else if (place.rating >= 3.5 && place.userRatingCount >= 50) {
-                score += 0.1;
-                indicators.push('well_rated');
-            }
-        }
-
-        if (searchMethod === 'text_search') {
-            score += 0.1;
-            indicators.push('text_search_result');
-        }
-
-        let confidence = 'low';
-        if (score >= 0.7) confidence = 'high';
-        else if (score >= 0.4) confidence = 'medium';
-
-        return {
-            eventScore: Math.min(score, 1.0),
-            confidence,
-            indicators
-        };
-    }, []);
-
-    const createEventFromPlace = useCallback((place, nearbyContacts, eventAnalysis, searchQuery = null) => {
-        return {
-            id: place.id,
-            name: place.displayName?.text || place.name,
-            location: {
-                lat: place.location.latitude,
-                lng: place.location.longitude
-            },
-            types: place.types || [],
-            rating: place.rating,
-            userRatingCount: place.userRatingCount,
-            vicinity: place.formattedAddress,
-            businessStatus: place.businessStatus,
-            priceLevel: place.priceLevel,
-            contactsNearby: nearbyContacts,
-            eventScore: eventAnalysis.eventScore,
-            confidence: eventAnalysis.confidence,
-            eventIndicators: eventAnalysis.indicators,
-            isActive: place.businessStatus === 'OPERATIONAL',
-            searchQuery: searchQuery,
-            discoveryMethod: searchQuery ? 'contextual_text_search' : 'intelligent_nearby_search',
-            photos: place.photos ? place.photos.slice(0, 3) : [],
-            timestamp: Date.now()
-        };
-    }, []);
-
-    const removeDuplicateEvents = useCallback((events) => {
-        const seen = new Set();
-        return events.filter(event => {
-            if (seen.has(event.id)) return false;
-            seen.add(event.id);
             return true;
-        });
-    }, []);
+        }).map(group => ({
+            ...group,
+            contactIds: group.contactIds.filter(contactId =>
+                filteredContacts.some(contact => contact.id === contactId)
+            )
+        })).filter(group => group.contactIds.length > 0);
+    }, [groups, selectedGroupIds, filteredContacts]);
 
-    const sortEventsByRelevance = useCallback((events) => {
-        return events.sort((a, b) => {
-            const scoreA = (a.eventScore * 0.4) + 
-                          ((a.contactsNearby?.length || 0) * 0.3) + 
-                          ((a.rating || 0) / 5 * 0.2) + 
-                          (a.confidence === 'high' ? 0.1 : a.confidence === 'medium' ? 0.05 : 0);
+    // Group Cluster Manager Class - VERSION 2.0
+    class GroupClusterManager {
+        constructor(map, groups, contacts, options = {}) {
+            console.log('🆕 GroupClusterManager v2.0 constructor called');
+            this.map = map;
+            this.groups = groups;
+            this.contacts = contacts;
+            this.options = {
+                groupColors: [
+                    '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
+                    '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
+                ],
+                zoomThresholds: {
+                    groupClusters: 12,  // Below zoom 12: show group clusters
+                    individualMarkers: 15 // Above zoom 15: show individual markers
+                },
+                ...options
+            };
             
-            const scoreB = (b.eventScore * 0.4) + 
-                          ((b.contactsNearby?.length || 0) * 0.3) + 
-                          ((b.rating || 0) / 5 * 0.2) + 
-                          (b.confidence === 'high' ? 0.1 : b.confidence === 'medium' ? 0.05 : 0);
-            
-            return scoreB - scoreA;
-        });
-    }, []);
-
-    // ============= MAIN EVENT PROCESSING FUNCTION =============
-
-
-const findNearbyEvents = useCallback(async (contactLocations) => {
-    // Prevent concurrent execution
-    if (isProcessingEventsRef.current) {
-        console.log('⏭️ Event processing already in progress, skipping...');
-        return;
-    }
-
-    if (!placesClientRef.current || contactLocations.length === 0) return;
-    
-    isProcessingEventsRef.current = true;
-    console.log('🔍 Starting intelligent event detection for', contactLocations.length, 'locations');
-    setLoadingEvents(true);
-    
-    try {
-        // Generate cache key based on locations and current date
-        const locationHash = contactLocations
-            .map(c => `${c.location.latitude.toFixed(3)},${c.location.longitude.toFixed(3)}`)
-            .sort()
-            .join('|');
-        const cacheKey = `${EVENTS_CACHE_KEY}_${locationHash}_${new Date().toDateString()}`;
-        
-        // Try to get cached events first
-        const cachedEvents = getCachedData(cacheKey, 60 * 60 * 1000); // 1 hour cache
-        if (cachedEvents) {
-            console.log('✅ Using cached events data');
-            setNearbyEvents(cachedEvents);
-            
-            // FIXED: Generate group suggestions from cached events
-            setTimeout(() => {
-                try {
-                    console.log('🧠 Generating intelligent group suggestions from cached events', {
-                        eventsCount: cachedEvents.length,
-                        contactLocationsCount: contactLocations.length
-                    });
-                    
-                    // FIXED: Use cachedEvents instead of events
-                    const clusters = improvedEventDetectionService.clusterEventsByProximity(cachedEvents, contactLocations);
-                    setEventClusters(clusters);
-                    
-                    const suggestions = improvedEventDetectionService.generateEventGroupSuggestions(clusters, groups);
-                    setSuggestedGroups(suggestions);
-                    
-                    if (suggestions.length > 0) {
-                        console.log(`💡 Generated ${suggestions.length} intelligent group suggestions from cache`);
-                        setShowAutoGroupSuggestions(true);
-                    }
-                } catch (error) {
-                    console.error('❌ Error generating group suggestions from cached events:', error);
-                }
-            }, 100);
-            
-            setLoadingEvents(false);
-            isProcessingEventsRef.current = false;
-            return;
+            this.groupMarkers = new Map();
+            this.individualMarkers = new Map();
+            this.currentZoom = this.map.getZoom();
+            this.isInitialized = false;
         }
 
-        // Deduplicate and optimize locations
-        const uniqueLocations = deduplicateContactLocations(contactLocations);
-        console.log(`📍 Processing ${uniqueLocations.length} unique locations (${contactLocations.length - uniqueLocations.length} duplicates removed)`);
-
-        const allEvents = [];
-        const batchSize = 3;
-        
-        for (let i = 0; i < uniqueLocations.length; i += batchSize) {
-            const batch = uniqueLocations.slice(i, i + batchSize);
-            console.log(`🔄 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(uniqueLocations.length/batchSize)}`);
+        async initialize() {
+            console.log('🚀 Initializing group cluster visualization v2.0');
+            console.log('🆕 VERSION 2.0 - Enhanced with detailed logging');
+            console.log('🔍 Current initialization state:', this.isInitialized);
             
-            const batchPromises = batch.map(async (locationData) => {
-                const { location, contacts: nearbyContacts } = locationData;
-                
-                try {
-                    const cityName = await inferCityFromCoordinates(location.latitude, location.longitude);
-                    const optimalTypes = getOptimalEventTypes(nearbyContacts);
-                    
-                    // FIXED: Extract company name properly
-                    const companies = nearbyContacts.map(c => c.company).filter(Boolean);
-                    const dominantCompany = companies.length > 0 ? 
-                        companies.reduce((a, b) => companies.filter(c => c === a).length >= companies.filter(c => c === b).length ? a : b) : null;
-                    
-                    const optimalRadius = improvedEventDetectionService.getOptimalRadius(optimalTypes, cityName, dominantCompany);
-                    
-                    console.log(`🎯 Searching ${cityName || 'unknown city'} with ${optimalRadius}m radius for types:`, optimalTypes);
-
-                    const nearbyData = await placesClientRef.current.searchNearby(location, {
-                        radius: optimalRadius,
-                        includedTypes: optimalTypes,
-                        maxResults: 20,
-                        rankPreference: 'POPULARITY'
-                    });
-
-                    const locationEvents = [];
-
-                    if (nearbyData.places && nearbyData.places.length > 0) {
-                        console.log(`📍 Found ${nearbyData.places.length} potential venues near ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`);
-                        
-                        nearbyData.places.forEach(place => {
-                            const eventAnalysis = analyzeEventVenue(place, optimalTypes);
-                            
-                            if (eventAnalysis.eventScore > 0.3) {
-                                const event = createEventFromPlace(place, nearbyContacts, eventAnalysis);
-                                locationEvents.push(event);
-                            }
-                        });
-                    }
-
-                    if (locationEvents.length < 2) {
-                        console.log(`🔍 Performing contextual text search for additional events`);
-                        
-                        const textSearchResults = await placesClientRef.current.contextualTextSearch(location, {
-                            dateRange: 'current',
-                            eventTypes: optimalTypes,
-                            city: cityName
-                        });
-
-                        textSearchResults.forEach(searchResult => {
-                            searchResult.places.forEach(place => {
-                                if (!locationEvents.some(e => e.id === place.id)) {
-                                    const eventAnalysis = analyzeEventVenue(place, optimalTypes, 'text_search');
-                                    
-                                    if (eventAnalysis.eventScore > 0.4) {
-                                        const event = createEventFromPlace(place, nearbyContacts, eventAnalysis, searchResult.query);
-                                        locationEvents.push(event);
-                                    }
-                                }
-                            });
-                        });
-                    }
-
-                    return locationEvents;
-                    
-                } catch (error) {
-                    console.error(`❌ Error processing location ${location.latitude}, ${location.longitude}:`, error);
-                    return [];
+            if (this.isInitialized) {
+                console.log('⚠️ Already initialized, skipping...');
+                return;
+            }
+            
+            // Set up zoom change listener
+            this.map.addListener('zoom_changed', () => {
+                const newZoom = this.map.getZoom();
+                if (Math.abs(newZoom - this.currentZoom) > 0.5) {
+                    this.currentZoom = newZoom;
+                    this.updateMarkersForZoom();
                 }
             });
 
-            const batchResults = await Promise.all(batchPromises);
-            allEvents.push(...batchResults.flat());
-
-            if (i + batchSize < uniqueLocations.length) {
-                await new Promise(resolve => setTimeout(resolve, 200));
-            }
+            await this.processGroups();
+            await this.processUngroupedContacts();
+            this.updateMarkersForZoom();
+            
+            this.isInitialized = true;
+            console.log('✅ Group cluster visualization initialized');
         }
 
-        const uniqueEvents = removeDuplicateEvents(allEvents);
-        const sortedEvents = sortEventsByRelevance(uniqueEvents);
-        
-        console.log(`✅ Event detection complete: ${sortedEvents.length} unique events found`);
+        async processGroups() {
+            const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
+            
+            for (const [index, group] of this.groups.entries()) {
+                const groupContacts = this.contacts.filter(contact => 
+                    group.contactIds.includes(contact.id)
+                );
+                
+                const contactsWithLocation = groupContacts.filter(contact =>
+                    contact.location?.latitude && contact.location?.longitude
+                );
 
-        setCachedData(cacheKey, sortedEvents);
-        setNearbyEvents(sortedEvents);
-        
-        // FIXED: Generate intelligent clustering from new events
-        setTimeout(() => {
-            try {
-                console.log('🧠 Generating intelligent group suggestions from new events', {
-                    eventsCount: sortedEvents.length,
-                    contactLocationsCount: contactLocations.length
+                if (contactsWithLocation.length === 0) continue;
+
+                const groupData = this.calculateGroupClusterData(group, contactsWithLocation, index);
+                
+                // Create group cluster marker
+                const groupClusterMarker = await this.createGroupClusterMarker(groupData);
+                
+                // Create individual markers for this group
+                const individualMarkers = await this.createIndividualMarkersForGroup(groupData);
+                
+                this.groupMarkers.set(group.id, {
+                    marker: groupClusterMarker,
+                    data: groupData,
+                    visible: false
                 });
                 
-                // FIXED: Use sortedEvents instead of events
-                const clusters = improvedEventDetectionService.clusterEventsByProximity(sortedEvents, contactLocations);
-                setEventClusters(clusters);
-                
-                const suggestions = improvedEventDetectionService.generateEventGroupSuggestions(clusters, groups);
-                setSuggestedGroups(suggestions);
-                
-                if (suggestions.length > 0) {
-                    console.log(`💡 Generated ${suggestions.length} intelligent group suggestions from new events`);
-                    setShowAutoGroupSuggestions(true);
-                }
-            } catch (error) {
-                console.error('❌ Error generating group suggestions from new events:', error);
+                this.individualMarkers.set(group.id, {
+                    markers: individualMarkers,
+                    data: groupData,
+                    visible: false
+                });
             }
-        }, 100);
+        }
+
+        calculateGroupClusterData(group, contactsWithLocation, colorIndex) {
+            const center = this.calculateCenter(contactsWithLocation);
+            const radius = this.calculateRadius(contactsWithLocation, center);
+            const color = this.options.groupColors[colorIndex % this.options.groupColors.length];
+            
+            return {
+                group: group,
+                contacts: contactsWithLocation,
+                center: center,
+                radius: radius,
+                color: color,
+                memberCount: contactsWithLocation.length,
+                bounds: this.calculateBounds(contactsWithLocation)
+            };
+        }
+
+        calculateCenter(contacts) {
+            const avgLat = contacts.reduce((sum, contact) => sum + contact.location.latitude, 0) / contacts.length;
+            const avgLng = contacts.reduce((sum, contact) => sum + contact.location.longitude, 0) / contacts.length;
+            return { lat: avgLat, lng: avgLng };
+        }
+
+        calculateRadius(contacts, center) {
+            let maxDistance = 0;
+            contacts.forEach(contact => {
+                const distance = this.calculateDistance(
+                    center.lat, center.lng,
+                    contact.location.latitude, contact.location.longitude
+                );
+                maxDistance = Math.max(maxDistance, distance);
+            });
+            return Math.max(50, Math.min(500, maxDistance));
+        }
+
+        calculateBounds(contacts) {
+            const bounds = new google.maps.LatLngBounds();
+            contacts.forEach(contact => {
+                bounds.extend({
+                    lat: contact.location.latitude,
+                    lng: contact.location.longitude
+                });
+            });
+            return bounds;
+        }
+
+        calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371000;
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lng2 - lng1) * Math.PI / 180;
+
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                    Math.cos(φ1) * Math.cos(φ2) *
+                    Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+            return R * c;
+        }
+
+        async createGroupClusterMarker(groupData) {
+            const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
+            
+            const clusterElement = this.createClusterElement(groupData);
+            
+            const marker = new AdvancedMarkerElement({
+                map: null,
+                position: groupData.center,
+                content: clusterElement,
+                title: `${groupData.group.name} (${groupData.memberCount} members)`,
+            });
+
+            clusterElement.addEventListener('click', () => {
+                this.zoomToGroup(groupData);
+            });
+
+            return marker;
+        }
+
+        createClusterElement(groupData) {
+            const container = document.createElement('div');
+            container.className = 'group-cluster-container';
+            container.style.cssText = `
+                position: relative;
+                cursor: pointer;
+                transform: translateX(-50%) translateY(-50%);
+            `;
+
+            const circle = document.createElement('div');
+            circle.className = 'group-cluster-circle';
+            circle.style.cssText = `
+                width: ${Math.max(40, Math.min(80, groupData.memberCount * 8))}px;
+                height: ${Math.max(40, Math.min(80, groupData.memberCount * 8))}px;
+                background: ${groupData.color};
+                border: 3px solid white;
+                border-radius: 50%;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s ease;
+            `;
+
+            const count = document.createElement('span');
+            count.textContent = groupData.memberCount.toString();
+            count.style.cssText = `
+                color: white;
+                font-weight: bold;
+                font-size: ${groupData.memberCount > 99 ? '10px' : '12px'};
+                text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            `;
+            circle.appendChild(count);
+
+            const popup = document.createElement('div');
+            popup.className = 'group-cluster-popup';
+            popup.style.cssText = `
+                position: absolute;
+                bottom: 100%;
+                left: 50%;
+                transform: translateX(-50%);
+                background: white;
+                padding: 6px 10px;
+                border-radius: 6px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                font-size: 12px;
+                font-weight: 500;
+                color: #374151;
+                white-space: nowrap;
+                margin-bottom: 8px;
+                opacity: 0;
+                transition: opacity 0.2s ease;
+                pointer-events: none;
+                z-index: 1000;
+            `;
+
+            const arrow = document.createElement('div');
+            arrow.style.cssText = `
+                position: absolute;
+                top: 100%;
+                left: 50%;
+                transform: translateX(-50%);
+                border: 4px solid transparent;
+                border-top-color: white;
+            `;
+            popup.appendChild(arrow);
+
+            popup.innerHTML = `${groupData.group.name}<br><small>${groupData.memberCount} members</small>` + popup.innerHTML;
+
+            container.addEventListener('mouseenter', () => {
+                circle.style.transform = 'scale(1.1)';
+                popup.style.opacity = '1';
+            });
+
+            container.addEventListener('mouseleave', () => {
+                circle.style.transform = 'scale(1)';
+                popup.style.opacity = '0';
+            });
+
+            container.appendChild(circle);
+            container.appendChild(popup);
+
+            return container;
+        }
+
+        async createIndividualMarkersForGroup(groupData) {
+            const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
+            const markers = [];
+
+            for (const contact of groupData.contacts) {
+                const markerElement = this.createIndividualMarkerElement(contact, groupData);
+                
+                const marker = new AdvancedMarkerElement({
+                    map: null,
+                    position: { lat: contact.location.latitude, lng: contact.location.longitude },
+                    content: markerElement,
+                    title: contact.name,
+                });
+
+                markerElement.addEventListener('click', () => {
+                    this.onContactClick?.(contact);
+                });
+
+                markers.push({
+                    marker: marker,
+                    contact: contact,
+                    element: markerElement
+                });
+            }
+
+            return markers;
+        }
+// In your GroupClusterManager class, update the createIndividualMarkerElement method:
+
+createIndividualMarkerElement(contact, groupData) {
+    const container = document.createElement('div');
+    container.className = 'individual-contact-marker NEW_MARKER';
+    container.setAttribute('data-contact-id', contact.id);
+    container.style.cssText = `
+        position: relative;
+        cursor: pointer;
+        transform: translateX(-50%) translateY(-50%);
+    `;
+
+    const circle = document.createElement('div');
+    circle.style.cssText = `
+        width: 32px;
+        height: 32px;
+        background: ${groupData.color};
+        border: 2px solid white;
+        border-radius: 50%;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+    `;
+
+    const initials = document.createElement('span');
+    initials.textContent = this.getInitials(contact.name);
+    initials.style.cssText = `
+        color: white;
+        font-weight: bold;
+        font-size: 10px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    `;
+    circle.appendChild(initials);
+
+    const popup = document.createElement('div');
+    popup.className = 'contact-popup';
+    popup.style.cssText = `
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        font-size: 12px;
+        color: #374151;
+        white-space: nowrap;
+        margin-bottom: 8px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        pointer-events: none;
+        z-index: 1000;
+    `;
+
+    const arrow = document.createElement('div');
+    arrow.style.cssText = `
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 4px solid transparent;
+        border-top-color: white;
+    `;
+    popup.appendChild(arrow);
+
+    popup.innerHTML = `
+        <div style="font-weight: 500;">${contact.name}</div>
+        ${contact.company ? `<div style="font-size: 10px; color: #6B7280;">${contact.company}</div>` : ''}
+    ` + popup.innerHTML;
+
+    // FIXED: Bind the click event properly
+    container.addEventListener('click', (e) => {
+        e.stopPropagation();
+        console.log('📍 Marker clicked directly:', contact.name);
+        if (this.onContactClick) {
+            this.onContactClick(contact);
+        }
+    });
+
+    container.addEventListener('mouseenter', () => {
+        circle.style.transform = 'scale(1.2)';
+        popup.style.opacity = '1';
+    });
+
+    container.addEventListener('mouseleave', () => {
+        circle.style.transform = 'scale(1)';
+        popup.style.opacity = '0';
+    });
+
+    container.appendChild(circle);
+    container.appendChild(popup);
+
+    return container;
+}
+
+        async processUngroupedContacts() {
+            const groupedContactIds = new Set();
+            this.groups.forEach(group => {
+                group.contactIds.forEach(id => groupedContactIds.add(id));
+            });
+
+            const ungroupedContacts = this.contacts.filter(contact => 
+                !groupedContactIds.has(contact.id) &&
+                contact.location?.latitude && contact.location?.longitude
+            );
+
+            if (ungroupedContacts.length === 0) return;
+
+            const ungroupedMarkers = [];
+            for (const contact of ungroupedContacts) {
+                const markerElement = this.createUngroupedMarkerElement(contact);
+                
+                const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
+                const marker = new AdvancedMarkerElement({
+                    map: null,
+                    position: { lat: contact.location.latitude, lng: contact.location.longitude },
+                    content: markerElement,
+                    title: contact.name,
+                });
+
+                markerElement.addEventListener('click', () => {
+                    this.onContactClick?.(contact);
+                });
+
+                ungroupedMarkers.push({
+                    marker: marker,
+                    contact: contact,
+                    element: markerElement
+                });
+            }
+
+            this.individualMarkers.set('ungrouped', {
+                markers: ungroupedMarkers,
+                data: { contacts: ungroupedContacts },
+                visible: false
+            });
+        }
+
         
-    } catch (error) {
-        console.error('❌ Error in findNearbyEvents:', error);
-        setError(`Failed to find nearby events: ${error.message}`);
-    } finally {
-        setLoadingEvents(false);
-        isProcessingEventsRef.current = false;
-    }
-}, [
-    getCachedData,
-    setCachedData,
-    deduplicateContactLocations,
-    inferCityFromCoordinates,
-    getOptimalEventTypes,
-    analyzeEventVenue,
-    createEventFromPlace,
-    removeDuplicateEvents,
-    sortEventsByRelevance,
-    groups // Include groups here since it's used in the setTimeout
-]);
+createUngroupedMarkerElement(contact) {
+    const container = document.createElement('div');
+    container.className = 'ungrouped-contact-marker NEW_MARKER';
+    container.setAttribute('data-contact-id', contact.id);
+    container.style.cssText = `
+        position: relative;
+        cursor: pointer;
+        transform: translateX(-50%) translateY(-50%);
+    `;
 
-    // ============= CRITICAL: SINGLE EFFECT FOR EVENT DETECTION =============
-    
-    useEffect(() => {
-        if (contactsWithLocation.length === 0) {
-            // Reset events when no contacts with location
-            if (nearbyEvents.length > 0) {
-                setNearbyEvents([]);
-                setSuggestedGroups([]);
-                setShowAutoGroupSuggestions(false);
+    const circle = document.createElement('div');
+    circle.style.cssText = `
+        width: 28px;
+        height: 28px;
+        background: #6B7280;
+        border: 2px solid white;
+        border-radius: 50%;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+    `;
+
+    const initials = document.createElement('span');
+    initials.textContent = this.getInitials(contact.name);
+    initials.style.cssText = `
+        color: white;
+        font-weight: bold;
+        font-size: 9px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    `;
+    circle.appendChild(initials);
+
+    const popup = document.createElement('div');
+    popup.className = 'contact-popup';
+    popup.style.cssText = `
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        font-size: 12px;
+        color: #374151;
+        white-space: nowrap;
+        margin-bottom: 8px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        pointer-events: none;
+        z-index: 1000;
+    `;
+
+    const arrow = document.createElement('div');
+    arrow.style.cssText = `
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 4px solid transparent;
+        border-top-color: white;
+    `;
+    popup.appendChild(arrow);
+
+    popup.innerHTML = `
+        <div style="font-weight: 500;">${contact.name}</div>
+        ${contact.company ? `<div style="font-size: 10px; color: #6B7280;">${contact.company}</div>` : ''}
+        <div style="font-size: 10px; color: #9CA3AF;">No group</div>
+    ` + popup.innerHTML;
+
+    // FIXED: Bind the click event properly
+    container.addEventListener('click', (e) => {
+        e.stopPropagation();
+        console.log('📍 Ungrouped marker clicked directly:', contact.name);
+        if (this.onContactClick) {
+            this.onContactClick(contact);
+        }
+    });
+
+    container.addEventListener('mouseenter', () => {
+        circle.style.transform = 'scale(1.2)';
+        popup.style.opacity = '1';
+    });
+
+    container.addEventListener('mouseleave', () => {
+        circle.style.transform = 'scale(1)';
+        popup.style.opacity = '0';
+    });
+
+    container.appendChild(circle);
+    container.appendChild(popup);
+
+    return container;
+}
+
+        getInitials(name) {
+            return name
+                .split(' ')
+                .map(word => word.charAt(0).toUpperCase())
+                .slice(0, 2)
+                .join('');
+        }
+
+        updateMarkersForZoom() {
+            const zoom = this.currentZoom;
+            const showGroupClusters = zoom < this.options.zoomThresholds.groupClusters;
+            const showIndividualMarkers = zoom >= this.options.zoomThresholds.individualMarkers;
+            const showMixed = zoom >= this.options.zoomThresholds.groupClusters && zoom < this.options.zoomThresholds.individualMarkers;
+
+            if (showGroupClusters) {
+                this.showGroupClusters();
+                this.hideIndividualMarkers();
+            } else if (showIndividualMarkers) {
+                this.hideGroupClusters();
+                this.showIndividualMarkers();
+            } else if (showMixed) {
+                this.showMixedView();
             }
-            return;
         }
 
-        // Create a stable hash of current locations to prevent duplicate processing
-        const locationHash = contactsWithLocation
-            .map(c => `${c.id}_${c.location.latitude.toFixed(4)}_${c.location.longitude.toFixed(4)}`)
-            .sort()
-            .join('|');
-
-        // Only process if locations actually changed and we're not already processing
-        if (lastProcessedLocationsRef.current !== locationHash && !isProcessingEventsRef.current) {
-            lastProcessedLocationsRef.current = locationHash;
-            console.log('📍 Contacts with location changed, triggering event detection');
-            findNearbyEvents(contactsWithLocation);
+        showGroupClusters() {
+            this.groupMarkers.forEach((groupInfo, groupId) => {
+                if (!groupInfo.visible) {
+                    groupInfo.marker.map = this.map;
+                    groupInfo.visible = true;
+                }
+            });
+            this.hideIndividualMarkers();
         }
-    }, [contactsWithLocation, findNearbyEvents]);
+
+        hideGroupClusters() {
+            this.groupMarkers.forEach((groupInfo, groupId) => {
+                if (groupInfo.visible) {
+                    groupInfo.marker.map = null;
+                    groupInfo.visible = false;
+                }
+            });
+        }
+
+        showIndividualMarkers() {
+            this.individualMarkers.forEach((markerInfo, groupId) => {
+                if (!markerInfo.visible) {
+                    markerInfo.markers.forEach(({ marker }) => {
+                        marker.map = this.map;
+                    });
+                    markerInfo.visible = true;
+                }
+            });
+        }
+
+        hideIndividualMarkers() {
+            this.individualMarkers.forEach((markerInfo, groupId) => {
+                if (markerInfo.visible) {
+                    markerInfo.markers.forEach(({ marker }) => {
+                        marker.map = null;
+                    });
+                    markerInfo.visible = false;
+                }
+            });
+        }
+
+        showMixedView() {
+            this.groupMarkers.forEach((groupInfo, groupId) => {
+                const shouldShowCluster = groupInfo.data.memberCount >= 3;
+                
+                if (shouldShowCluster && !groupInfo.visible) {
+                    groupInfo.marker.map = this.map;
+                    groupInfo.visible = true;
+                    
+                    const individualInfo = this.individualMarkers.get(groupId);
+                    if (individualInfo?.visible) {
+                        individualInfo.markers.forEach(({ marker }) => {
+                            marker.map = null;
+                        });
+                        individualInfo.visible = false;
+                    }
+                } else if (!shouldShowCluster && groupInfo.visible) {
+                    groupInfo.marker.map = null;
+                    groupInfo.visible = false;
+                    
+                    const individualInfo = this.individualMarkers.get(groupId);
+                    if (individualInfo && !individualInfo.visible) {
+                        individualInfo.markers.forEach(({ marker }) => {
+                            marker.map = this.map;
+                        });
+                        individualInfo.visible = true;
+                    }
+                }
+            });
+
+            const ungroupedInfo = this.individualMarkers.get('ungrouped');
+            if (ungroupedInfo && !ungroupedInfo.visible) {
+                ungroupedInfo.markers.forEach(({ marker }) => {
+                    marker.map = this.map;
+                });
+                ungroupedInfo.visible = true;
+            }
+        }
+
+        zoomToGroup(groupData) {
+            this.map.fitBounds(groupData.bounds, {
+                padding: { top: 50, right: 50, bottom: 50, left: 50 }
+            });
+        }
+
+        setContactClickHandler(handler) {
+            this.onContactClick = handler;
+        }
+
+        async updateData(groups, contacts) {
+            this.cleanup();
+            this.groups = groups;
+            this.contacts = contacts;
+            this.isInitialized = false;
+            await this.initialize();
+        }
+
+        cleanup() {
+            this.groupMarkers.forEach((groupInfo) => {
+                groupInfo.marker.map = null;
+            });
+            
+            this.individualMarkers.forEach((markerInfo) => {
+                markerInfo.markers.forEach(({ marker }) => {
+                    marker.map = null;
+                });
+            });
+            
+            this.groupMarkers.clear();
+            this.individualMarkers.clear();
+        }
+
+        getState() {
+            return {
+                currentZoom: this.currentZoom,
+                groupMarkersVisible: Array.from(this.groupMarkers.values()).filter(g => g.visible).length,
+                individualMarkersVisible: Array.from(this.individualMarkers.values())
+                    .reduce((total, markerInfo) => total + (markerInfo.visible ? markerInfo.markers.length : 0), 0)
+            };
+        }
+    }
 
     // Map initialization effect
     useEffect(() => {
@@ -597,6 +797,8 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
 
         const initializeMap = async () => {
             if (!mapRef.current) return;
+            
+            console.log('🗺️ Initializing enhanced map with group clustering');
 
             try {
                 const loader = new Loader({
@@ -606,7 +808,6 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                 });
 
                 const { Map } = await loader.importLibrary('maps');
-                const { AdvancedMarkerElement } = await loader.importLibrary('marker');
 
                 if (!isMounted) return;
 
@@ -622,6 +823,14 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                         });
                     });
                     center = bounds.getCenter().toJSON();
+                    
+                    if (filteredGroups.length > 5) {
+                        zoom = 10;
+                    } else if (filteredGroups.length > 0) {
+                        zoom = 12;
+                    } else {
+                        zoom = 14;
+                    }
                 }
 
                 const map = new Map(mapRef.current, {
@@ -629,53 +838,53 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                     zoom,
                     mapId: 'DEMO_MAP_ID',
                     gestureHandling: 'greedy',
-                    disableDefaultUI: isMobile,
-                });
-                mapInstanceRef.current = map;
-
-                // Clear old markers
-                markersRef.current.forEach(m => m.map = null);
-                markersRef.current = [];
-
-                // Create new markers
-                contactsWithLocation.forEach(contact => {
-                    const markerElement = document.createElement('div');
-                    markerElement.className = 'contact-marker';
-                    markerElement.style.width = '30px';
-                    markerElement.style.height = '30px';
-                    markerElement.style.borderRadius = '50%';
-                    markerElement.style.backgroundColor = '#4F46E5';
-                    markerElement.style.border = '2px solid white';
-                    markerElement.style.cursor = 'pointer';
-
-                    const marker = new AdvancedMarkerElement({
-                        map,
-                        position: { lat: contact.location.latitude, lng: contact.location.longitude },
-                        content: markerElement,
-                        title: contact.name,
-                    });
-
-                    markerElement.addEventListener('click', () => {
-                        if (onMarkerClick) onMarkerClick(contact);
-                    });
-
-                    markersRef.current.push(marker);
+                    disableDefaultUI: isMobile
                 });
                 
-                if (contactsWithLocation.length > 1) {
-                     const bounds = new google.maps.LatLngBounds();
-                     contactsWithLocation.forEach(contact => {
-                         bounds.extend({
-                             lat: contact.location.latitude,
-                             lng: contact.location.longitude
-                         });
-                     });
-                     map.fitBounds(bounds, { padding: isMobile ? 40 : 100 });
-                }
+                mapInstanceRef.current = map;
+                setCurrentZoom(zoom);
+
+                map.addListener('zoom_changed', () => {
+                    const newZoom = map.getZoom();
+                    setCurrentZoom(newZoom);
+                });
+
+                console.log('🎯 Initializing GroupClusterManager', {
+                    groups: filteredGroups.length,
+                    contacts: contactsWithLocation.length
+                });
+
+                const clusterManager = new GroupClusterManager(
+                    map,
+                    filteredGroups,
+                    contactsWithLocation,
+                    {
+                        zoomThresholds: {
+                            groupClusters: 11,
+                            individualMarkers: 14
+                        }
+                    }
+                );
+clusterManager.setContactClickHandler((contact) => {
+    console.log('📍 Contact clicked (initial):', contact.name);
+    
+    // Set modal states directly
+    setSelectedContact(contact);
+    setShowContactProfile(true);
+    
+    // Call original onMarkerClick if provided
+    if (onMarkerClick) {
+        onMarkerClick(contact);
+    }
+});
+
+                await clusterManager.initialize();
+                groupClusterManagerRef.current = clusterManager;
 
                 map.addListener('idle', () => {
                     if (isMounted) {
                         setIsLoaded(true);
+                        console.log('✅ Enhanced map with group clustering ready');
                     }
                 });
 
@@ -689,8 +898,36 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
 
         return () => {
             isMounted = false;
+            if (groupClusterManagerRef.current) {
+                groupClusterManagerRef.current.cleanup();
+            }
         };
-    }, [contactsWithLocation, isMobile, onMarkerClick]);
+    }, [filteredGroups, contactsWithLocation, isMobile, onMarkerClick]);
+
+   useEffect(() => {
+    if (groupClusterManagerRef.current && isLoaded) {
+        console.log('🔄 Updating cluster manager with new data');
+        groupClusterManagerRef.current.updateData(filteredGroups, contactsWithLocation);
+        
+        // FIXED: Re-set the contact click handler after updating data
+        console.log('🔧 Re-setting contact click handler after data update');
+        groupClusterManagerRef.current.setContactClickHandler((contact) => {
+            console.log('📍 Contact clicked after update:', contact.name, contact);
+            console.log('📍 About to set selectedContact and showContactProfile (update)');
+            
+            // IMPORTANT: Set both modal states directly
+            setSelectedContact(contact);
+            setShowContactProfile(true);
+            
+            console.log('📍 State setters called (update)');
+            
+            // Also call the original onMarkerClick if provided
+            if (onMarkerClick) {
+                onMarkerClick(contact);
+            }
+        });
+    }
+}, [filteredGroups, contactsWithLocation, isLoaded, onMarkerClick]);
 
     // ============= UI INTERACTION FUNCTIONS =============
 
@@ -733,22 +970,21 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
     // ============= COMPUTED VALUES =============
 
     const groupStats = useMemo(() => {
-        return groups.map(group => ({
+        return filteredGroups.map(group => ({
             ...group,
-            contactCount: group.contactIds.filter(id =>
-                filteredContacts.some(c => c.id === id)
-            ).length
+            contactCount: group.contactIds.length
         }));
-    }, [groups, filteredContacts]);
+    }, [filteredGroups]);
 
     const contactCounts = useMemo(() => {
         return {
             new: filteredContacts.filter(c => c.status === 'new').length,
             viewed: filteredContacts.filter(c => c.status === 'viewed').length,
             archived: filteredContacts.filter(c => c.status === 'archived').length,
-            total: filteredContacts.length
+            total: filteredContacts.length,
+            withLocation: contactsWithLocation.length
         };
-    }, [filteredContacts]);
+    }, [filteredContacts, contactsWithLocation]);
 
     const getUniqueCompanies = useCallback(() => {
         return [...new Set(contacts.map(c => c.company).filter(Boolean))].sort();
@@ -763,6 +999,12 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
         return colors[index % colors.length] || '#6B7280';
     }, [groups]);
 
+    // Get current cluster manager state for debugging
+    const clusterState = useMemo(() => {
+        if (!groupClusterManagerRef.current) return null;
+        return groupClusterManagerRef.current.getState();
+    }, [currentZoom, isLoaded]);
+
     return (
         <div className="relative h-full w-full">
             {/* Loading state */}
@@ -771,13 +1013,11 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                     <div className="flex flex-col items-center space-y-3">
                         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-600"></div>
                         <span className="text-gray-500 text-sm font-medium">
-                            Loading {contactsWithLocation.length} contacts...
+                            Setting up smart group visualization...
                         </span>
-                        {loadingEvents && (
-                            <span className="text-purple-600 text-xs">
-                                🔍 Detecting nearby events...
-                            </span>
-                        )}
+                        <span className="text-purple-600 text-xs">
+                            Loading {contactsWithLocation.length} contacts in {filteredGroups.length} groups
+                        </span>
                     </div>
                 </div>
             )}
@@ -788,9 +1028,102 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                 ref={mapRef}
             />
 
+            {/* Test Button for Modal (Debug) */}
+            {process.env.NODE_ENV === 'development' && contactsWithLocation.length > 0 && (
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 flex gap-2">
+                    <button
+                        onClick={() => {
+                            console.log('🧪 Test button clicked');
+                            setSelectedContact(contactsWithLocation[0]);
+                            setShowContactProfile(true);
+                        }}
+                        className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm"
+                    >
+                        Test Modal ({contactsWithLocation[0]?.name})
+                    </button>
+                    <button
+                        onClick={() => {
+                            console.log('🔍 Checking markers on page...');
+                            const allMarkers = document.querySelectorAll('[class*="contact-marker"]');
+                            const newMarkers = document.querySelectorAll('.NEW_MARKER');
+                            const oldMarkers = document.querySelectorAll('.contact-marker:not(.NEW_MARKER)');
+                            console.log('📊 Marker analysis:', {
+                                total: allMarkers.length,
+                                new: newMarkers.length,
+                                old: oldMarkers.length
+                            });
+                            newMarkers.forEach((marker, i) => {
+                                console.log(`✅ New marker ${i + 1}:`, {
+                                    class: marker.className,
+                                    contactId: marker.getAttribute('data-contact-id')
+                                });
+                            });
+                            oldMarkers.forEach((marker, i) => {
+                                console.log(`❌ Old marker ${i + 1}:`, {
+                                    class: marker.className,
+                                    onclick: !!marker.onclick
+                                });
+                            });
+                        }}
+                        className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm"
+                    >
+                        Check Markers
+                    </button>
+                    <button
+                        onClick={() => {
+                            console.log('🧪 Testing direct click simulation...');
+                            const newMarkers = document.querySelectorAll('.NEW_MARKER');
+                            if (newMarkers.length > 0) {
+                                console.log('🧪 Simulating click on first marker...');
+                                const firstMarker = newMarkers[0];
+                                console.log('🧪 Marker element:', firstMarker);
+                                console.log('🧪 Contact ID:', firstMarker.getAttribute('data-contact-id'));
+                                
+                                // Simulate click
+                                const clickEvent = new MouseEvent('click', {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    view: window
+                                });
+                                firstMarker.dispatchEvent(clickEvent);
+                                console.log('🧪 Click event dispatched');
+                            } else {
+                                console.log('❌ No NEW_MARKER elements found!');
+                            }
+                        }}
+                        className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm"
+                    >
+                        Test Click
+                    </button>
+                </div>
+            )}
+
+            {/* Zoom Level Indicator */}
+            {isLoaded && (
+                <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-3 py-2 rounded-lg text-xs z-40">
+                    <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                            currentZoom < 11 ? 'bg-blue-400' : 
+                            currentZoom < 14 ? 'bg-yellow-400' : 'bg-green-400'
+                        }`}></div>
+                        <span>
+                            {currentZoom < 11 && 'Group Clusters'}
+                            {currentZoom >= 11 && currentZoom < 14 && 'Mixed View'}
+                            {currentZoom >= 14 && 'Individual Markers'}
+                        </span>
+                        <span className="text-gray-300">({currentZoom?.toFixed(1)})</span>
+                    </div>
+                    {clusterState && (
+                        <div className="mt-1 text-xs opacity-75">
+                            Groups: {clusterState.groupMarkersVisible} | Individual: {clusterState.individualMarkersVisible}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Enhanced Smart Group Suggestions */}
             {isLoaded && suggestedGroups.length > 0 && (
-                <div className="absolute top-4 left-4 z-30 max-w-sm">
+                <div className="absolute top-4 right-4 z-30 max-w-sm">
                     <div className="bg-white rounded-lg shadow-lg border border-purple-200 p-4">
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
@@ -801,7 +1134,7 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                                 </div>
                                 <div>
                                     <h4 className="font-semibold text-sm text-gray-900">Smart Groups</h4>
-                                    <p className="text-xs text-gray-500">AI-detected event groups</p>
+                                    <p className="text-xs text-gray-500">AI-detected clusters</p>
                                 </div>
                             </div>
                             <button
@@ -820,40 +1153,12 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                                     <div key={suggestion.id} className="border border-gray-100 rounded-lg p-3 bg-gradient-to-br from-gray-50 to-white">
                                         <div className="flex items-start justify-between mb-2">
                                             <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                                        suggestion.confidence === 'high' 
-                                                            ? 'bg-green-100 text-green-800' 
-                                                            : 'bg-yellow-100 text-yellow-800'
-                                                    }`}>
-                                                        {suggestion.confidence}
-                                                    </span>
-                                                    <span className="text-xs">
-                                                        {suggestion.subType === 'conference' && '🏢'}
-                                                        {suggestion.subType === 'entertainment' && '🎭'}
-                                                        {suggestion.subType === 'sports' && '⚽'}
-                                                        {suggestion.subType === 'education' && '🎓'}
-                                                        {suggestion.subType === 'cultural' && '🎨'}
-                                                        {suggestion.subType === 'business' && '💼'}
-                                                    </span>
-                                                    <span className="text-xs text-purple-600 font-medium">
-                                                        Priority: {suggestion.priority}
-                                                    </span>
-                                                </div>
                                                 <h5 className="font-medium text-sm text-gray-900 truncate">
                                                     {suggestion.name}
                                                 </h5>
                                                 <p className="text-xs text-gray-600 mt-1">
                                                     {suggestion.description}
                                                 </p>
-                                                <p className="text-xs text-purple-600 mt-1 font-medium">
-                                                    📍 {suggestion.eventData?.primaryVenue}
-                                                </p>
-                                                {suggestion.eventData?.estimatedAttendees && (
-                                                    <p className="text-xs text-blue-600 mt-1">
-                                                        👥 {suggestion.eventData.estimatedAttendees} contacts detected
-                                                    </p>
-                                                )}
                                             </div>
                                         </div>
                                         
@@ -873,38 +1178,21 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                                         </div>
                                     </div>
                                 ))}
-                                
-                                {suggestedGroups.length > 3 && (
-                                    <div className="text-center pt-2 border-t">
-                                        <span className="text-xs text-gray-500">
-                                            +{suggestedGroups.length - 3} more intelligent suggestions
-                                        </span>
-                                    </div>
-                                )}
                             </div>
                         )}
                     </div>
                 </div>
             )}
 
-            {/* Cache Performance Indicator (Debug Mode) */}
-            {process.env.NODE_ENV === 'development' && isLoaded && (
-                <div className="absolute bottom-4 right-4 bg-black bg-opacity-75 text-white p-2 rounded text-xs">
-                    Cache: {cacheStats.hits}H/{cacheStats.misses}M
-                    {placesClientRef.current?.getUsageStats && (
-                        <div>API: {placesClientRef.current.getUsageStats().requestCount} reqs</div>
-                    )}
-                </div>
-            )}
-            
-            {/* Filters Panel */}
+            {/* Map Controls */}
             {isLoaded && !isMobile && (
-                <div className="absolute top-4 right-4 z-20">
+                <div className="absolute top-20 right-4 z-20">
                     {!isSelectingMode ? (
                         <div className="flex flex-col gap-2">
+                            {/* Filters Button */}
                             <button
                                 onClick={() => setShowFilters(!showFilters)}
-                                className="bg-white p-3 rounded-lg shadow-lg border flex items-center gap-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                className="bg-white p-3 rounded-lg shadow-lg border flex items-center gap-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.414A1 1 0 013 6.707V4z" />
@@ -917,9 +1205,10 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                                 )}
                             </button>
                             
+                            {/* Create Group Button */}
                             <button
                                 onClick={startGroupSelection}
-                                className="bg-white p-3 rounded-lg shadow-lg border flex items-center gap-2 text-sm font-medium text-purple-600 hover:bg-purple-50"
+                                className="bg-white p-3 rounded-lg shadow-lg border flex items-center gap-2 text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors"
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -927,10 +1216,11 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                                 Create Group
                             </button>
                             
+                            {/* Loading Events Indicator */}
                             {loadingEvents && (
                                 <div className="bg-white p-2 rounded-lg shadow-lg border flex items-center gap-2 text-xs text-gray-600">
                                     <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
-                                    Finding events...
+                                    Detecting events...
                                 </div>
                             )}
                         </div>
@@ -945,14 +1235,14 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                             <div className="flex gap-2">
                                 <button
                                     onClick={cancelGroupSelection}
-                                    className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                                    className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     onClick={createGroupFromSelection}
                                     disabled={selectedMarkers.length === 0}
-                                    className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+                                    className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 transition-colors"
                                 >
                                     Create ({selectedMarkers.length})
                                 </button>
@@ -964,7 +1254,7 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
 
             {/* Filters Dropdown */}
             {showFilters && isLoaded && !isMobile && (
-                <div className="absolute top-20 right-4 z-30 bg-white rounded-lg shadow-lg border p-4 w-80">
+                <div className="absolute top-32 right-4 z-30 bg-white rounded-lg shadow-lg border p-4 w-80">
                     <div className="flex items-center justify-between mb-4">
                         <h4 className="font-semibold text-sm text-gray-900">Filter Contacts</h4>
                         <button
@@ -1023,35 +1313,6 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                             </select>
                         </div>
 
-                        {/* Event Filter */}
-                        <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Events</label>
-                            <select
-                                value={filters.hasEvent}
-                                onChange={(e) => setFilters(prev => ({ ...prev, hasEvent: e.target.value }))}
-                                className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            >
-                                <option value="all">All Contacts</option>
-                                <option value="yes">From Events</option>
-                                <option value="no">Not from Events</option>
-                            </select>
-                        </div>
-
-                        {/* Date Range Filter */}
-                        <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Date Added</label>
-                            <select
-                                value={filters.dateRange}
-                                onChange={(e) => setFilters(prev => ({ ...prev, dateRange: e.target.value }))}
-                                className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            >
-                                <option value="all">All Time</option>
-                                <option value="today">Today</option>
-                                <option value="week">This Week</option>
-                                <option value="month">This Month</option>
-                            </select>
-                        </div>
-
                         {/* Clear Filters */}
                         <div className="pt-2 border-t">
                             <button
@@ -1078,7 +1339,7 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                         <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                         </svg>
-                        Contact Locations
+                        Contact Groups
                     </h4>
                     
                     {/* Groups Section */}
@@ -1088,7 +1349,7 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                                 </svg>
-                                Groups
+                                Active Groups
                             </h5>
                             <div className="space-y-1 text-xs">
                                 {groupStats.map(group => (
@@ -1125,35 +1386,34 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                         </div>
                     )}
 
-                    {/* Status Section */}
+                    {/* Visualization Guide */}
                     <div className="space-y-2 text-xs">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow"></div>
-                                <span className="text-gray-600">New contacts</span>
+                                <div className="w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow flex items-center justify-center">
+                                    <span className="text-white text-xs font-bold">5</span>
+                                </div>
+                                <span className="text-gray-600">Group clusters</span>
                             </div>
-                            <span className="font-medium text-blue-600">{contactCounts.new}</span>
+                            <span className="text-xs text-gray-500">Zoom &lt; 11</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded-full bg-green-500 border-2 border-white shadow"></div>
-                                <span className="text-gray-600">Viewed contacts</span>
+                                <div className="w-4 h-4 rounded-full bg-green-500 border-2 border-white shadow flex items-center justify-center">
+                                    <span className="text-white text-xs font-bold">J</span>
+                                </div>
+                                <span className="text-gray-600">Individual contacts</span>
                             </div>
-                            <span className="font-medium text-green-600">{contactCounts.viewed}</span>
+                            <span className="text-xs text-gray-500">Zoom &gt; 14</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded-full bg-gray-500 border-2 border-white shadow"></div>
-                                <span className="text-gray-600">Archived contacts</span>
+                                <div className="w-4 h-4 rounded-full bg-gray-500 border-2 border-white shadow flex items-center justify-center">
+                                    <span className="text-white text-xs font-bold">A</span>
+                                </div>
+                                <span className="text-gray-600">Ungrouped contacts</span>
                             </div>
-                            <span className="font-medium text-gray-600">{contactCounts.archived}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded bg-purple-500 border-2 border-white shadow"></div>
-                                <span className="text-gray-600">Events nearby</span>
-                            </div>
-                            <span className="font-medium text-purple-600">{nearbyEvents.length}</span>
+                            <span className="text-xs text-gray-500">Always visible</span>
                         </div>
                     </div>
                     
@@ -1164,11 +1424,9 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                                 <span className="text-blue-600"> (filtered)</span>
                             )}
                         </div>
-                        {nearbyEvents.length > 0 && (
-                            <div className="text-xs text-purple-600 mt-1">
-                                📅 {nearbyEvents.length} nearby event{nearbyEvents.length !== 1 ? 's' : ''}
-                            </div>
-                        )}
+                        <div className="text-xs text-purple-600 mt-1">
+                            📍 {contactCounts.withLocation} with location data
+                        </div>
                     </div>
                 </div>
             )}
@@ -1177,7 +1435,7 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
             {isLoaded && isMobile && (
                 <button
                     onClick={() => setShowLegend(!showLegend)}
-                    className="absolute top-4 left-4 bg-white p-3 rounded-lg shadow-lg border flex items-center gap-2 z-20"
+                    className="absolute top-20 left-4 bg-white p-3 rounded-lg shadow-lg border flex items-center gap-2 z-20"
                 >
                     <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -1193,9 +1451,9 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
 
             {/* Mobile Legend Overlay */}
             {isLoaded && isMobile && showLegend && (
-                <div className="absolute inset-x-4 top-16 bg-white p-4 rounded-lg shadow-lg border z-30 max-h-64 overflow-y-auto">
+                <div className="absolute inset-x-4 top-32 bg-white p-4 rounded-lg shadow-lg border z-30 max-h-64 overflow-y-auto">
                     <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-sm">Contact Locations</h4>
+                        <h4 className="font-semibold text-sm">Contact Groups</h4>
                         <button
                             onClick={() => setShowLegend(false)}
                             className="p-1 text-gray-400 hover:text-gray-600"
@@ -1234,34 +1492,13 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                         </div>
                     )}
                     
-                    {/* Mobile Status Grid */}
-                    <div className="grid grid-cols-3 gap-3 text-xs">
-                        <div className="text-center">
-                            <div className="w-6 h-6 rounded-full bg-blue-500 border-2 border-white shadow mx-auto mb-1"></div>
-                            <div className="font-medium text-blue-600">{contactCounts.new}</div>
-                            <div className="text-gray-600">New</div>
-                        </div>
-                        <div className="text-center">
-                            <div className="w-6 h-6 rounded-full bg-green-500 border-2 border-white shadow mx-auto mb-1"></div>
-                            <div className="font-medium text-green-600">{contactCounts.viewed}</div>
-                            <div className="text-gray-600">Viewed</div>
-                        </div>
-                        <div className="text-center">
-                            <div className="w-6 h-6 rounded-full bg-gray-500 border-2 border-white shadow mx-auto mb-1"></div>
-                            <div className="font-medium text-gray-600">{contactCounts.archived}</div>
-                            <div className="text-gray-600">Archived</div>
-                        </div>
-                    </div>
-                    
                     <div className="mt-3 pt-3 border-t border-gray-200 text-center">
                         <div className="text-xs text-gray-500">
                             Total: {contactCounts.total} contact{contactCounts.total !== 1 ? 's' : ''}
                         </div>
-                        {nearbyEvents.length > 0 && (
-                            <div className="text-xs text-purple-600 mt-1">
-                                📅 {nearbyEvents.length} nearby event{nearbyEvents.length !== 1 ? 's' : ''}
-                            </div>
-                        )}
+                        <div className="text-xs text-purple-600 mt-1">
+                            📍 {contactCounts.withLocation} with location
+                        </div>
                     </div>
                 </div>
             )}
@@ -1286,15 +1523,288 @@ const findNearbyEvents = useCallback(async (contactLocations) => {
                 }}
             />
 
-            {/* Helper Text */}
+            {/* Contact Profile Modal */}
+            {console.log('🔍 Rendering ContactProfileModal:', { isOpen: showContactProfile, contact: selectedContact?.name })}
+            <ContactProfileModal
+                isOpen={showContactProfile}
+                onClose={() => {
+                    console.log('📍 Modal closing');
+                    setShowContactProfile(false);
+                    setSelectedContact(null);
+                }}
+                contact={selectedContact}
+                groups={groups}
+                onContactUpdate={onContactsUpdate}
+            />
+
+            {/* Enhanced Helper Text */}
             {isLoaded && !isMobile && contactsWithLocation.length > 1 && (
-                <div className="absolute bottom-4 right-4 bg-white p-2 rounded-lg shadow border text-xs text-gray-500 max-w-48">
-                    💡 {isSelectingMode 
-                        ? 'Click markers to select contacts for grouping'
-                        : 'Click markers for more information. Purple squares are events.'
-                    }
+                <div className="absolute bottom-4 right-4 bg-white p-3 rounded-lg shadow border text-xs text-gray-500 max-w-56 z-20">
+                    <div className="font-medium text-gray-700 mb-1">
+                        💡 Smart Map Guide
+                    </div>
+                    {currentZoom < 11 && (
+                        <div>Showing group clusters. Zoom in to see members.</div>
+                    )}
+                    {currentZoom >= 11 && currentZoom < 14 && (
+                        <div>Mixed view: Large groups as clusters, small as individuals.</div>
+                    )}
+                    {currentZoom >= 14 && (
+                        <div>Individual view: All contacts visible as separate markers.</div>
+                    )}
+                    <div className="mt-2 pt-2 border-t border-gray-200">
+                        <div>🟦 Group clusters • 👤 Individual contacts</div>
+                        <div>Click clusters to zoom in • Click markers for details</div>
+                    </div>
                 </div>
             )}
+
+            {/* Error Display */}
+            {error && (
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-50 border border-red-200 rounded-lg p-4 z-50">
+                    <div className="flex items-center gap-2 text-red-800">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                        <span className="font-medium">Map Error</span>
+                    </div>
+                    <p className="text-red-700 text-sm mt-1">{error}</p>
+                    <button
+                        onClick={() => setError(null)}
+                        className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded text-xs hover:bg-red-200 transition-colors"
+                    >
+                        Dismiss
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Contact Profile Modal Component
+function ContactProfileModal({ isOpen, onClose, contact, groups, onContactUpdate }) {
+    const [isEditing, setIsEditing] = useState(false);
+    const [editedContact, setEditedContact] = useState(null);
+
+    useEffect(() => {
+        if (contact) {
+            setEditedContact({ ...contact });
+        }
+    }, [contact]);
+
+    if (!isOpen || !contact) return null;
+
+    const contactGroups = groups.filter(group => 
+        group.contactIds.includes(contact.id)
+    );
+
+    const handleSave = () => {
+        if (onContactUpdate) {
+            onContactUpdate(editedContact);
+        }
+        setIsEditing(false);
+    };
+
+    const handleStatusChange = (newStatus) => {
+        const updatedContact = { ...editedContact, status: newStatus };
+        setEditedContact(updatedContact);
+        if (onContactUpdate) {
+            onContactUpdate(updatedContact);
+        }
+    };
+
+    const getStatusColor = (status) => {
+        switch (status) {
+            case 'new': return 'bg-blue-100 text-blue-800';
+            case 'viewed': return 'bg-green-100 text-green-800';
+            case 'archived': return 'bg-gray-100 text-gray-800';
+            default: return 'bg-gray-100 text-gray-800';
+        }
+    };
+
+    const getInitials = (name) => {
+        return name
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase())
+            .slice(0, 2)
+            .join('');
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-blue-50 to-purple-50">
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-lg font-bold">
+                            {getInitials(contact.name)}
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-semibold text-gray-900">{contact.name}</h3>
+                            <p className="text-sm text-gray-600">{contact.company || 'No company'}</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-white/50"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="p-6 overflow-y-auto max-h-[60vh]">
+                    {/* Status */}
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                        <div className="flex gap-2">
+                            {['new', 'viewed', 'archived'].map((status) => (
+                                <button
+                                    key={status}
+                                    onClick={() => handleStatusChange(status)}
+                                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                                        contact.status === status 
+                                            ? getStatusColor(status)
+                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Contact Information */}
+                    <div className="space-y-4">
+                        {/* Email */}
+                        {contact.email && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                    </svg>
+                                    <a href={`mailto:${contact.email}`} className="text-blue-600 hover:text-blue-800 text-sm">
+                                        {contact.email}
+                                    </a>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Phone */}
+                        {contact.phone && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                                <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                    </svg>
+                                    <a href={`tel:${contact.phone}`} className="text-blue-600 hover:text-blue-800 text-sm">
+                                        {contact.phone}
+                                    </a>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Location */}
+                        {contact.location && contact.location.latitude && contact.location.longitude && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                                <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                    </svg>
+                                    <span className="text-sm text-gray-600">
+                                        {contact.location.address || `${contact.location.latitude.toFixed(4)}, ${contact.location.longitude.toFixed(4)}`}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Groups */}
+                        {contactGroups.length > 0 && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Groups</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {contactGroups.map((group) => (
+                                        <span
+                                            key={group.id}
+                                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full"
+                                        >
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                            </svg>
+                                            {group.name}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Notes */}
+                        {contact.notes && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                                <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-sm text-gray-700">{contact.notes}</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Metadata */}
+                        <div className="pt-4 border-t border-gray-200">
+                            <div className="grid grid-cols-2 gap-4 text-xs text-gray-500">
+                                <div>
+                                    <span className="font-medium">Added:</span>
+                                    <br />
+                                    {new Date(contact.createdAt || contact.submittedAt).toLocaleDateString()}
+                                </div>
+                                {contact.lastInteraction && (
+                                    <div>
+                                        <span className="font-medium">Last Contact:</span>
+                                        <br />
+                                        {new Date(contact.lastInteraction).toLocaleDateString()}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="flex gap-3 p-6 border-t bg-gray-50">
+                    <button
+                        onClick={onClose}
+                        className="flex-1 px-4 py-2 text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg transition-colors"
+                    >
+                        Close
+                    </button>
+                    {contact.email && (
+                        <button
+                            onClick={() => window.open(`mailto:${contact.email}`, '_blank')}
+                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                            Email
+                        </button>
+                    )}
+                    {contact.phone && (
+                        <button
+                            onClick={() => window.open(`tel:${contact.phone}`, '_blank')}
+                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                            </svg>
+                            Call
+                        </button>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

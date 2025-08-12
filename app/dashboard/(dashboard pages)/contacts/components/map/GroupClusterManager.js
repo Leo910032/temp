@@ -169,7 +169,6 @@ export class GroupClusterManager {
     }
 
     async createGroupClusterMarker(groupData) {
-        const { Map } = await google.maps.importLibrary('maps');
         const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
         
         // Create cluster circle element
