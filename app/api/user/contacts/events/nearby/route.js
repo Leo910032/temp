@@ -75,7 +75,7 @@ export async function POST(request) {
         }
 
         // Initialize Places API client
-        placesClient = createPlacesApiClient(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY);
+placesClient = createOptimizedPlacesApiClient(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY);
 
         const detectionResults = {
             locationsProcessed: 0,
@@ -402,16 +402,17 @@ async function detectEventsForLocation(locationData, placesClient, options, cach
             types: optimalTypes
         });
         
-        // Primary search with optimized parameters
-        const nearbyData = await placesClient.searchNearby(
-            { latitude, longitude },
-            {
-                radius: optimalRadius,
-                includedTypes: optimalTypes,
-                maxResults: maxResults,
-                rankPreference: 'POPULARITY'
-            }
-        );
+        // LIGNE 330 environ - REMPLACER les appels searchNearby PAR :
+const nearbyData = await placesClient.searchNearby(
+    { latitude, longitude },
+    {
+        radius: optimalRadius,
+        includedTypes: optimalTypes,
+        maxResults: maxResults,
+        rankPreference: 'POPULARITY',
+        fieldLevel: 'minimal' // AJOUTER cette ligne
+    }
+);
         
         if (nearbyData.places && nearbyData.places.length > 0) {
             nearbyData.places.forEach(place => {

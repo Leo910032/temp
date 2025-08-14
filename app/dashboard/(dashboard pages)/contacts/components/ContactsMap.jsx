@@ -6,7 +6,7 @@ import { Loader } from '@googlemaps/js-api-loader';
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { improvedEventDetectionService } from '@/lib/services/improvedEventDetectionService';
 import { IMPROVED_EVENT_DETECTION_CONFIG } from '@/lib/config/improvedEventDetectionConfig';
-import { createPlacesApiClient } from '@/lib/services/placesApiClient';
+import { createOptimizedPlacesApiClient } from '@/lib/services/placesApiClient';
 
 // Cache keys and storage
 const CACHE_PREFIX = 'contacts_map_';
