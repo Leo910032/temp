@@ -1,4 +1,4 @@
-// app/api/admin/analytics/route.js - Enhanced with Places Search Analytics
+// app/api/admin/analytics/route.js - Enhanced with Business Card Scanning Analytics
 
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
@@ -13,14 +13,13 @@ const PRICING = {
     },
     // Places Search API (Text Search)
     placesSearch: {
-        // This pricing tier is for Text Search Pro
         freeLimit: 10000, // 10,000 free for Text Search Essentials
         pricing: [
             { min: 0, max: 10000, cost: 0 },
-            { min: 10001, max: Infinity, cost: 0.032 } // Corrected: $32.00 per 1,000 for Text Search Pro
+            { min: 10001, max: Infinity, cost: 0.032 } // $32.00 per 1,000 for Text Search Pro
         ]
     },
-    // NEW: Places Autocomplete API
+    // Places Autocomplete API
     placesAutocomplete: {
         freeLimit: 10000, // 10,000 free for Autocomplete Requests
         pricing: [
@@ -28,14 +27,21 @@ const PRICING = {
             { min: 10001, max: Infinity, cost: 0.00283 } // $2.83 per 1,000 for Autocomplete Requests
         ]
     },
-    // NEW: Places Details API
+    // Places Details API
     placesDetails: {
         freeLimit: 10000, // 10,000 free for Place Details Essentials
         pricing: [
             { min: 0, max: 10000, cost: 0 },
             { min: 10001, max: Infinity, cost: 0.005 } // $5.00 per 1,000 for Place Details Essentials
-                                                      // Note: If part of an Autocomplete Session, this call can be free,
-                                                      // but we log its potential cost for internal tracking.
+        ]
+    },
+    // NEW: Business Card Scanning API (Google Vision API)
+    businessCardScan: {
+        freeLimit: 1000, // 1,000 free scans per month
+        pricing: [
+            { min: 0, max: 1000, cost: 0 },
+            { min: 1001, max: 5000000, cost: 0.0015 }, // $1.50 per 1,000 scans
+            { min: 5000001, max: Infinity, cost: 0.0006 } // $0.60 per 1,000 scans for volume
         ]
     }
 };
@@ -56,10 +62,10 @@ function calculateCosts(apiCalls, apiType) {
         };
     }
 
-    // Handle APIs with a simple free limit and flat rate after
+    // Handle APIs with a simple free limit and flat rate after (groupGeneration)
     if (apiType === 'groupGeneration') {
         const freeCallsUsed = Math.min(apiCalls, pricing.freeLimit);
-        const paidCalls = Math.max(0, apiCalls - freeCallsUsed); // Corrected: Use freeCallsUsed here
+        const paidCalls = Math.max(0, apiCalls - freeCallsUsed);
         const totalCost = paidCalls * pricing.costPerCallAfterFree;
         
         return {
@@ -72,7 +78,7 @@ function calculateCosts(apiCalls, apiType) {
         };
     }
     
-    // Handle APIs with tiered pricing (placesSearch, placesAutocomplete, placesDetails)
+    // Handle APIs with tiered pricing (all others including businessCardScan)
     let totalCost = 0;
     let remainingCalls = apiCalls;
     let freeCallsUsed = 0;
@@ -83,9 +89,9 @@ function calculateCosts(apiCalls, apiType) {
         if (remainingCalls <= 0) break;
         
         const tierMin = tier.min;
-        const tierMax = tier.max || Infinity; // Use Infinity for the last tier
+        const tierMax = tier.max || Infinity;
         
-        // Calculate calls within the current tier, capped by remainingCalls
+        // Calculate calls within the current tier
         const callsInTier = Math.min(remainingCalls, (tierMax - tierMin + 1));
         
         if (tier.cost === 0) {
@@ -109,7 +115,7 @@ function calculateCosts(apiCalls, apiType) {
 }
 
 export async function GET(request) {
-    console.log('📊 Enhanced Admin Analytics API: Request received.');
+    console.log('📊 Enhanced Admin Analytics API with Business Card Scanning: Request received.');
 
     try {
         // 1. Admin Authentication
@@ -145,8 +151,9 @@ export async function GET(request) {
                 summary: {
                     groupGeneration: { totalCost: 0, totalApiCalls: 0, totalRuns: 0 },
                     placesSearch: { totalCost: 0, totalApiCalls: 0, totalRuns: 0 },
-                    placesAutocomplete: { totalCost: 0, totalApiCalls: 0, totalRuns: 0 }, // NEW
-                    placesDetails: { totalCost: 0, totalApiCalls: 0, totalRuns: 0 },       // NEW
+                    placesAutocomplete: { totalCost: 0, totalApiCalls: 0, totalRuns: 0 },
+                    placesDetails: { totalCost: 0, totalApiCalls: 0, totalRuns: 0 },
+                    businessCardScan: { totalCost: 0, totalApiCalls: 0, totalRuns: 0 }, // NEW
                     combined: { totalCost: 0, totalApiCalls: 0, totalRuns: 0 }
                 },
                 recentRuns: []
@@ -167,13 +174,19 @@ export async function GET(request) {
                 totalRuns: 0,
                 logs: []
             },
-            placesAutocomplete: { // NEW
+            placesAutocomplete: {
                 totalCost: 0,
                 totalApiCalls: 0,
                 totalRuns: 0,
                 logs: []
             },
-            placesDetails: { // NEW
+            placesDetails: {
+                totalCost: 0,
+                totalApiCalls: 0,
+                totalRuns: 0,
+                logs: []
+            },
+            businessCardScan: { // NEW
                 totalCost: 0,
                 totalApiCalls: 0,
                 totalRuns: 0,
@@ -203,16 +216,21 @@ export async function GET(request) {
                 analytics.placesSearch.totalCost += log.cost || 0;
                 analytics.placesSearch.totalApiCalls += log.apiCalls || 0;
                 analytics.placesSearch.logs.push(log);
-            } else if (log.feature === 'placesAutocomplete') { // NEW
+            } else if (log.feature === 'placesAutocomplete') {
                 analytics.placesAutocomplete.totalRuns++;
                 analytics.placesAutocomplete.totalCost += log.cost || 0;
                 analytics.placesAutocomplete.totalApiCalls += log.apiCalls || 0;
                 analytics.placesAutocomplete.logs.push(log);
-            } else if (log.feature === 'placesDetails') { // NEW
+            } else if (log.feature === 'placesDetails') {
                 analytics.placesDetails.totalRuns++;
                 analytics.placesDetails.totalCost += log.cost || 0;
                 analytics.placesDetails.totalApiCalls += log.apiCalls || 0;
                 analytics.placesDetails.logs.push(log);
+            } else if (log.feature === 'businessCardScan') { // NEW
+                analytics.businessCardScan.totalRuns++;
+                analytics.businessCardScan.totalCost += log.cost || 0;
+                analytics.businessCardScan.totalApiCalls += log.visionApiCalls || log.scansProcessed || 1; // Use appropriate field
+                analytics.businessCardScan.logs.push(log);
             }
 
             // Collect recent runs for detailed view (limit to 100 for performance)
@@ -223,14 +241,13 @@ export async function GET(request) {
                     feature: log.feature,
                     status: log.status,
                     cost: log.cost,
-                    apiCalls: log.apiCalls,
+                    apiCalls: log.apiCalls || log.visionApiCalls || log.scansProcessed || 0,
                     processingTimeMs: log.processingTimeMs,
                     searchStrategy: log.searchStrategy || null,
-                    subscription: log.subscriptionAtTimeOfRun,
+                    subscription: log.subscriptionAtTimeOfRun || log.tierAtTimeOfScan,
                     timestamp: log.timestamp,
                     cacheHitRate: log.cacheHitRate || 0,
-                    // Use relevant identifier based on feature type
-                    query: log.query || log.placeId || 'N/A', 
+                    query: log.query || log.placeId || 'N/A',
                     details: log.details || {}
                 });
             }
@@ -241,8 +258,9 @@ export async function GET(request) {
                     userStats[log.userId] = {
                         groupGeneration: { cost: 0, runs: 0, apiCalls: 0 },
                         placesSearch: { cost: 0, runs: 0, apiCalls: 0 },
-                        placesAutocomplete: { cost: 0, runs: 0, apiCalls: 0 }, // NEW
-                        placesDetails: { cost: 0, runs: 0, apiCalls: 0 },       // NEW
+                        placesAutocomplete: { cost: 0, runs: 0, apiCalls: 0 },
+                        placesDetails: { cost: 0, runs: 0, apiCalls: 0 },
+                        businessCardScan: { cost: 0, runs: 0, apiCalls: 0 }, // NEW
                         total: { cost: 0, runs: 0, apiCalls: 0 }
                     };
                 }
@@ -251,37 +269,39 @@ export async function GET(request) {
                 const featureKey = log.feature === 'autoGroupGeneration' ? 'groupGeneration' :
                                    log.feature === 'placesSearch' ? 'placesSearch' :
                                    log.feature === 'placesAutocomplete' ? 'placesAutocomplete' :
-                                   log.feature === 'placesDetails' ? 'placesDetails' : null;
+                                   log.feature === 'placesDetails' ? 'placesDetails' :
+                                   log.feature === 'businessCardScan' ? 'businessCardScan' : null; // NEW
 
                 if (featureKey) {
                     userStats[log.userId][featureKey].cost += log.cost || 0;
                     userStats[log.userId][featureKey].runs += 1;
-                    userStats[log.userId][featureKey].apiCalls += log.apiCalls || 0;
+                    userStats[log.userId][featureKey].apiCalls += log.apiCalls || log.visionApiCalls || log.scansProcessed || 0;
                 }
                 
                 userStats[log.userId].total.cost += log.cost || 0;
                 userStats[log.userId].total.runs += 1;
-                userStats[log.userId].total.apiCalls += log.apiCalls || 0;
+                userStats[log.userId].total.apiCalls += log.apiCalls || log.visionApiCalls || log.scansProcessed || 0;
             }
         });
 
         // 4. Calculate Costs and Usage Statistics for all features
         const groupGenerationCosts = calculateCosts(analytics.groupGeneration.totalApiCalls, 'groupGeneration');
         const placesSearchCosts = calculateCosts(analytics.placesSearch.totalApiCalls, 'placesSearch');
-        const placesAutocompleteCosts = calculateCosts(analytics.placesAutocomplete.totalApiCalls, 'placesAutocomplete'); // NEW
-        const placesDetailsCosts = calculateCosts(analytics.placesDetails.totalApiCalls, 'placesDetails');             // NEW
+        const placesAutocompleteCosts = calculateCosts(analytics.placesAutocomplete.totalApiCalls, 'placesAutocomplete');
+        const placesDetailsCosts = calculateCosts(analytics.placesDetails.totalApiCalls, 'placesDetails');
+        const businessCardScanCosts = calculateCosts(analytics.businessCardScan.totalApiCalls, 'businessCardScan'); // NEW
 
         // 5. Find Top Users
         const topUsers = Object.entries(userStats)
             .sort((a, b) => b[1].total.cost - a[1].total.cost)
-            .slice(0, 10) // Limit to top 10 for dashboard display
+            .slice(0, 10)
             .map(([userId, stats]) => ({
                 userId,
-                // Ensure all feature stats are present, even if 0, for consistent display
                 groupGeneration: stats.groupGeneration || { cost: 0, runs: 0, apiCalls: 0 },
                 placesSearch: stats.placesSearch || { cost: 0, runs: 0, apiCalls: 0 },
                 placesAutocomplete: stats.placesAutocomplete || { cost: 0, runs: 0, apiCalls: 0 },
                 placesDetails: stats.placesDetails || { cost: 0, runs: 0, apiCalls: 0 },
+                businessCardScan: stats.businessCardScan || { cost: 0, runs: 0, apiCalls: 0 }, // NEW
                 total: stats.total || { cost: 0, runs: 0, apiCalls: 0 }
             }));
 
@@ -306,31 +326,38 @@ export async function GET(request) {
                 recent: recentLogs.filter(log => log.feature === 'placesSearch').length,
                 previous: previousLogs.filter(log => log.feature === 'placesSearch').length
             },
-            placesAutocomplete: { // NEW
+            placesAutocomplete: {
                 recent: recentLogs.filter(log => log.feature === 'placesAutocomplete').length,
                 previous: previousLogs.filter(log => log.feature === 'placesAutocomplete').length
             },
-            placesDetails: { // NEW
+            placesDetails: {
                 recent: recentLogs.filter(log => log.feature === 'placesDetails').length,
                 previous: previousLogs.filter(log => log.feature === 'placesDetails').length
+            },
+            businessCardScan: { // NEW
+                recent: recentLogs.filter(log => log.feature === 'businessCardScan').length,
+                previous: previousLogs.filter(log => log.feature === 'businessCardScan').length
             }
         };
 
         // 7. Prepare Enhanced Response
         const combinedTotalCost = analytics.groupGeneration.totalCost + 
                                   analytics.placesSearch.totalCost +
-                                  analytics.placesAutocomplete.totalCost + // NEW
-                                  analytics.placesDetails.totalCost;      // NEW
+                                  analytics.placesAutocomplete.totalCost +
+                                  analytics.placesDetails.totalCost +
+                                  analytics.businessCardScan.totalCost; // NEW
         
         const combinedTotalApiCalls = analytics.groupGeneration.totalApiCalls +
                                       analytics.placesSearch.totalApiCalls +
-                                      analytics.placesAutocomplete.totalApiCalls + // NEW
-                                      analytics.placesDetails.totalApiCalls;      // NEW
+                                      analytics.placesAutocomplete.totalApiCalls +
+                                      analytics.placesDetails.totalApiCalls +
+                                      analytics.businessCardScan.totalApiCalls; // NEW
 
         const combinedTotalRuns = analytics.groupGeneration.totalRuns +
                                   analytics.placesSearch.totalRuns +
-                                  analytics.placesAutocomplete.totalRuns + // NEW
-                                  analytics.placesDetails.totalRuns;      // NEW
+                                  analytics.placesAutocomplete.totalRuns +
+                                  analytics.placesDetails.totalRuns +
+                                  analytics.businessCardScan.totalRuns; // NEW
 
         const summary = {
             period: "Last 30 Days",
@@ -352,7 +379,7 @@ export async function GET(request) {
                     ((trends.placesSearch.recent - trends.placesSearch.previous) / trends.placesSearch.previous * 100).toFixed(1) : 
                     trends.placesSearch.recent > 0 ? 100 : 0
             },
-            placesAutocomplete: { // NEW
+            placesAutocomplete: {
                 ...placesAutocompleteCosts,
                 totalRuns: analytics.placesAutocomplete.totalRuns,
                 averageCostPerRun: analytics.placesAutocomplete.totalRuns > 0 ?
@@ -361,7 +388,7 @@ export async function GET(request) {
                     ((trends.placesAutocomplete.recent - trends.placesAutocomplete.previous) / trends.placesAutocomplete.previous * 100).toFixed(1) :
                     trends.placesAutocomplete.recent > 0 ? 100 : 0
             },
-            placesDetails: { // NEW
+            placesDetails: {
                 ...placesDetailsCosts,
                 totalRuns: analytics.placesDetails.totalRuns,
                 averageCostPerRun: analytics.placesDetails.totalRuns > 0 ?
@@ -369,6 +396,24 @@ export async function GET(request) {
                 trend: trends.placesDetails.previous > 0 ?
                     ((trends.placesDetails.recent - trends.placesDetails.previous) / trends.placesDetails.previous * 100).toFixed(1) :
                     trends.placesDetails.recent > 0 ? 100 : 0
+            },
+            businessCardScan: { // NEW
+                ...businessCardScanCosts,
+                totalRuns: analytics.businessCardScan.totalRuns,
+                averageCostPerRun: analytics.businessCardScan.totalRuns > 0 ?
+                    parseFloat((analytics.businessCardScan.totalCost / analytics.businessCardScan.totalRuns).toFixed(4)) : 0,
+                trend: trends.businessCardScan.previous > 0 ?
+                    ((trends.businessCardScan.recent - trends.businessCardScan.previous) / trends.businessCardScan.previous * 100).toFixed(1) :
+                    trends.businessCardScan.recent > 0 ? 100 : 0,
+                // Additional metrics specific to business card scanning
+                successRate: analytics.businessCardScan.logs.length > 0 ?
+                    (analytics.businessCardScan.logs.filter(log => log.status === 'success').length / analytics.businessCardScan.logs.length * 100).toFixed(1) : 0,
+                averageProcessingTime: analytics.businessCardScan.logs.length > 0 ?
+                    analytics.businessCardScan.logs.reduce((sum, log) => sum + (log.processingTimeMs || 0), 0) / analytics.businessCardScan.logs.length : 0,
+                // Vision API specific metrics
+                totalScansProcessed: analytics.businessCardScan.logs.reduce((sum, log) => sum + (log.scansProcessed || 1), 0),
+                currentTier: businessCardScanCosts.usagePercentage < 100 ? 'free' : 
+                            businessCardScanCosts.totalCalls <= 5000000 ? 'standard' : 'volume'
             },
             combined: {
                 totalCost: parseFloat(combinedTotalCost.toFixed(4)),
@@ -395,17 +440,19 @@ export async function GET(request) {
             featureBreakdown: {
                 groupGeneration: analytics.groupGeneration.logs.slice(0, 50),
                 placesSearch: analytics.placesSearch.logs.slice(0, 50),
-                placesAutocomplete: analytics.placesAutocomplete.logs.slice(0, 50), // NEW
-                placesDetails: analytics.placesDetails.logs.slice(0, 50)             // NEW
+                placesAutocomplete: analytics.placesAutocomplete.logs.slice(0, 50),
+                placesDetails: analytics.placesDetails.logs.slice(0, 50),
+                businessCardScan: analytics.businessCardScan.logs.slice(0, 50) // NEW
             },
             pricing: PRICING
         };
 
-        console.log('✅ Enhanced Admin Analytics API: Successfully processed and sending data.', {
+        console.log('✅ Enhanced Admin Analytics API with Business Card Scanning: Successfully processed and sending data.', {
             groupGenerationRuns: analytics.groupGeneration.totalRuns,
             placesSearchRuns: analytics.placesSearch.totalRuns,
-            placesAutocompleteRuns: analytics.placesAutocomplete.totalRuns, // NEW
-            placesDetailsRuns: analytics.placesDetails.totalRuns,           // NEW
+            placesAutocompleteRuns: analytics.placesAutocomplete.totalRuns,
+            placesDetailsRuns: analytics.placesDetails.totalRuns,
+            businessCardScanRuns: analytics.businessCardScan.totalRuns, // NEW
             totalCost: summary.combined.totalCost
         });
 

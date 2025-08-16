@@ -1,4 +1,4 @@
-// app/admin/page.jsx - Main Admin Dashboard
+// app/admin/page.jsx - Enhanced Main Admin Dashboard
 "use client"
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -284,7 +284,7 @@ export default function AdminDashboard() {
             <div className="flex items-center justify-center py-12">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
-                    <p className="mt-4 text-gray-600">Loading users...</p>
+                    <p className="mt-4 text-gray-600">Loading admin dashboard...</p>
                 </div>
             </div>
         );
@@ -293,7 +293,7 @@ export default function AdminDashboard() {
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-gray-900">User Management</h2>
+                <h2 className="text-2xl font-bold text-gray-900">Admin Dashboard</h2>
                 <div className="flex items-center gap-3">
                     {/* Test Panel Toggle */}
                     <button
@@ -353,8 +353,8 @@ export default function AdminDashboard() {
             {/* Platform Usage Overview */}
             <PlatformUsageOverview stats={globalAnalytics} />
 
-            {/* Stats Cards */}
-            <StatsCards stats={stats} />
+            {/* Enhanced Stats Cards with API Data */}
+            <StatsCards stats={stats} apiStats={globalAnalytics} />
 
             {/* Account Types Breakdown */}
             <AccountTypesBreakdown stats={stats} />

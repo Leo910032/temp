@@ -1,4 +1,4 @@
-// components/admin/UserUsageOverview.jsx
+// components/admin/UserUsageOverview.jsx - Enhanced with Business Card Scanning
 "use client"
 import { useState } from 'react';
 
@@ -31,11 +31,14 @@ export default function UserUsageOverview({ usageLogs, userId }) {
         placesSearch: {
             totalCost: 0, totalApiCalls: 0, totalRuns: 0, logs: logsByFeature.placesSearch || []
         },
-        placesAutocomplete: { // NEW
+        placesAutocomplete: {
             totalCost: 0, totalApiCalls: 0, totalRuns: 0, logs: logsByFeature.placesAutocomplete || []
         },
-        placesDetails: { // NEW
+        placesDetails: {
             totalCost: 0, totalApiCalls: 0, totalRuns: 0, logs: logsByFeature.placesDetails || []
+        },
+        businessCardScan: { // NEW
+            totalCost: 0, totalApiCalls: 0, totalRuns: 0, logs: logsByFeature.businessCardScan || []
         }
     };
 
@@ -44,7 +47,7 @@ export default function UserUsageOverview({ usageLogs, userId }) {
         const featureType = log.feature;
         if (featureStats[featureType]) {
             featureStats[featureType].totalCost += log.cost || 0;
-            featureStats[featureType].totalApiCalls += log.apiCalls || 0;
+            featureStats[featureType].totalApiCalls += log.apiCalls || log.visionApiCalls || log.scansProcessed || 0;
             featureStats[featureType].totalRuns += 1;
         }
     });
@@ -52,12 +55,14 @@ export default function UserUsageOverview({ usageLogs, userId }) {
     const userStats = {
         totalCost: (featureStats.autoGroupGeneration.totalCost + 
                     featureStats.placesSearch.totalCost + 
-                    featureStats.placesAutocomplete.totalCost + // NEW
-                    featureStats.placesDetails.totalCost),       // NEW
+                    featureStats.placesAutocomplete.totalCost +
+                    featureStats.placesDetails.totalCost +
+                    featureStats.businessCardScan.totalCost), // NEW
         totalApiCalls: (featureStats.autoGroupGeneration.totalApiCalls + 
                         featureStats.placesSearch.totalApiCalls + 
-                        featureStats.placesAutocomplete.totalApiCalls + // NEW
-                        featureStats.placesDetails.totalApiCalls),       // NEW
+                        featureStats.placesAutocomplete.totalApiCalls +
+                        featureStats.placesDetails.totalApiCalls +
+                        featureStats.businessCardScan.totalApiCalls), // NEW
         totalRuns: usageLogs.length
     };
 
@@ -95,8 +100,9 @@ export default function UserUsageOverview({ usageLogs, userId }) {
         switch (feature) {
             case 'autoGroupGeneration': return '🤖';
             case 'placesSearch': return '🔍';
-            case 'placesAutocomplete': return '📝'; // NEW
-            case 'placesDetails': return '📋';     // NEW
+            case 'placesAutocomplete': return '📝';
+            case 'placesDetails': return '📋';
+            case 'businessCardScan': return '📇'; // NEW
             default: return '❓';
         }
     };
@@ -105,8 +111,9 @@ export default function UserUsageOverview({ usageLogs, userId }) {
         switch (feature) {
             case 'autoGroupGeneration': return 'Auto-Grouping';
             case 'placesSearch': return 'Places Search';
-            case 'placesAutocomplete': return 'Places Autocomplete'; // NEW
-            case 'placesDetails': return 'Places Details';         // NEW
+            case 'placesAutocomplete': return 'Places Autocomplete';
+            case 'placesDetails': return 'Places Details';
+            case 'businessCardScan': return 'Business Card Scanning'; // NEW
             default: return 'Unknown';
         }
     };
@@ -125,8 +132,9 @@ export default function UserUsageOverview({ usageLogs, userId }) {
                     <option value="all">All Features</option>
                     <option value="autoGroupGeneration">🤖 Auto-Grouping</option>
                     <option value="placesSearch">🔍 Places Search (Legacy)</option>
-                    <option value="placesAutocomplete">📝 Places Autocomplete</option> {/* NEW */}
-                    <option value="placesDetails">📋 Places Details</option>           {/* NEW */}
+                    <option value="placesAutocomplete">📝 Places Autocomplete</option>
+                    <option value="placesDetails">📋 Places Details</option>
+                    <option value="businessCardScan">📇 Business Card Scanning</option> {/* NEW */}
                 </select>
             </div>
 
@@ -200,7 +208,7 @@ export default function UserUsageOverview({ usageLogs, userId }) {
                     </div>
                 </div>
 
-                {/* Places Autocomplete Stats - NEW */}
+                {/* Places Autocomplete Stats */}
                 <div className="bg-white rounded-lg p-3 border border-gray-200">
                     <div className="flex items-center justify-between mb-2">
                         <h6 className="text-sm font-medium text-gray-700 flex items-center">
@@ -234,7 +242,7 @@ export default function UserUsageOverview({ usageLogs, userId }) {
                     </div>
                 </div>
 
-                {/* Places Details Stats - NEW */}
+                {/* Places Details Stats */}
                 <div className="bg-white rounded-lg p-3 border border-gray-200">
                     <div className="flex items-center justify-between mb-2">
                         <h6 className="text-sm font-medium text-gray-700 flex items-center">
@@ -264,6 +272,40 @@ export default function UserUsageOverview({ usageLogs, userId }) {
                                     (featureStats.placesDetails.totalCost / featureStats.placesDetails.totalRuns).toFixed(4) : '0.0000'}
                             </div>
                             <div className="text-xs text-gray-500">Avg/Req</div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Business Card Scanning Stats - NEW */}
+                <div className="bg-white rounded-lg p-3 border border-gray-200">
+                    <div className="flex items-center justify-between mb-2">
+                        <h6 className="text-sm font-medium text-gray-700 flex items-center">
+                            <span className="mr-1">📇</span>
+                            Business Card Scanning
+                        </h6>
+                        <span className="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded">
+                            {featureStats.businessCardScan.totalRuns} scans
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                            <div className="text-sm font-bold text-red-600">
+                                ${featureStats.businessCardScan.totalCost.toFixed(4)}
+                            </div>
+                            <div className="text-xs text-gray-500">Cost</div>
+                        </div>
+                        <div>
+                            <div className="text-sm font-bold text-blue-600">
+                                {featureStats.businessCardScan.totalApiCalls}
+                            </div>
+                            <div className="text-xs text-gray-500">Vision API Calls</div>
+                        </div>
+                        <div>
+                            <div className="text-sm font-bold text-green-600">
+                                {featureStats.businessCardScan.totalRuns > 0 ? 
+                                    (featureStats.businessCardScan.totalCost / featureStats.businessCardScan.totalRuns).toFixed(4) : '0.0000'}
+                            </div>
+                            <div className="text-xs text-gray-500">Avg/Scan</div>
                         </div>
                     </div>
                 </div>
@@ -327,7 +369,7 @@ export default function UserUsageOverview({ usageLogs, userId }) {
                                 </div>
                                 <div className="text-right">
                                     <div className="font-medium">${(log.cost || 0).toFixed(4)}</div>
-                                    <div className="text-gray-500">{log.apiCalls || 0} calls</div>
+                                    <div className="text-gray-500">{log.apiCalls || log.visionApiCalls || log.scansProcessed || 0} calls</div>
                                 </div>
                             </div>
 
@@ -362,11 +404,11 @@ export default function UserUsageOverview({ usageLogs, userId }) {
                                                 </div>
                                             )}
 
-                                            {(log.query || log.placeId) && ( // Show query or placeId
+                                            {(log.query || log.placeId) && (
                                                 <div className="flex justify-between py-1 border-b border-gray-200">
                                                     <span className="text-gray-600">{log.feature === 'placesDetails' ? 'Place ID:' : 'Query:'}</span>
                                                     <span className="font-medium text-right text-xs max-w-32 truncate">
-                                                            &quot;{log.query || log.placeId}&quot;
+                                                        &quot;{log.query || log.placeId}&quot;
                                                     </span>
                                                 </div>
                                             )}
@@ -374,12 +416,12 @@ export default function UserUsageOverview({ usageLogs, userId }) {
                                             <div className="flex justify-between py-1 border-b border-gray-200">
                                                 <span className="text-gray-600">Subscription:</span>
                                                 <span className={`font-medium px-2 py-1 rounded text-xs ${
-                                                    log.subscriptionAtTimeOfRun === 'business' ? 'bg-yellow-100 text-yellow-800' :
-                                                    log.subscriptionAtTimeOfRun === 'premium' ? 'bg-purple-100 text-purple-800' :
-                                                    log.subscriptionAtTimeOfRun === 'pro' ? 'bg-blue-100 text-blue-800' :
+                                                    (log.subscriptionAtTimeOfRun || log.tierAtTimeOfScan) === 'business' ? 'bg-yellow-100 text-yellow-800' :
+                                                    (log.subscriptionAtTimeOfRun || log.tierAtTimeOfScan) === 'premium' ? 'bg-purple-100 text-purple-800' :
+                                                    (log.subscriptionAtTimeOfRun || log.tierAtTimeOfScan) === 'pro' ? 'bg-blue-100 text-blue-800' :
                                                     'bg-gray-100 text-gray-800'
                                                 }`}>
-                                                    {log.subscriptionAtTimeOfRun || 'base'}
+                                                    {log.subscriptionAtTimeOfRun || log.tierAtTimeOfScan || 'base'}
                                                 </span>
                                             </div>
 
@@ -401,7 +443,7 @@ export default function UserUsageOverview({ usageLogs, userId }) {
 
                                             <div className="flex justify-between py-1 border-b border-gray-200">
                                                 <span className="text-gray-600">API Calls:</span>
-                                                <span className="font-medium text-blue-600">{log.apiCalls || 0}</span>
+                                                <span className="font-medium text-blue-600">{log.apiCalls || log.visionApiCalls || log.scansProcessed || 0}</span>
                                             </div>
 
                                             <div className="flex justify-between py-1 border-b border-gray-200">
@@ -420,6 +462,24 @@ export default function UserUsageOverview({ usageLogs, userId }) {
                                                     {log.avgTimePerCallMs ? formatDuration(log.avgTimePerCallMs) : 'N/A'}
                                                 </span>
                                             </div>
+
+                                            {/* Business Card Scanning specific metrics */}
+                                            {log.feature === 'businessCardScan' && (
+                                                <>
+                                                    <div className="flex justify-between py-1 border-b border-gray-200">
+                                                        <span className="text-gray-600">Vision API Tier:</span>
+                                                        <span className="font-medium text-indigo-600 capitalize">
+                                                            {log.tierAtTimeOfScan || 'Unknown'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between py-1 border-b border-gray-200">
+                                                        <span className="text-gray-600">Monthly Scans After:</span>
+                                                        <span className="font-medium text-purple-600">
+                                                            {log.monthlyScansAfterThis || 'N/A'}
+                                                        </span>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
 
                                         {log.details && (
@@ -473,6 +533,42 @@ export default function UserUsageOverview({ usageLogs, userId }) {
                                                                 <span className="text-gray-600">Session Token:</span>
                                                                 <span className="font-medium text-right text-xs max-w-32 truncate">
                                                                     {log.details.sessionTokenUsed}
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Business Card Scanning specific results */}
+                                                {log.feature === 'businessCardScan' && log.details && (
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div className="flex justify-between py-1 border-b border-gray-200">
+                                                            <span className="text-gray-600">Fields Found:</span>
+                                                            <span className="font-medium text-blue-600">{log.details.fieldsFound || 0}</span>
+                                                        </div>
+                                                        <div className="flex justify-between py-1 border-b border-gray-200">
+                                                            <span className="text-gray-600">Fields with Data:</span>
+                                                            <span className="font-medium text-green-600">{log.details.fieldsWithData || 0}</span>
+                                                        </div>
+                                                        <div className="flex justify-between py-1 border-b border-gray-200">
+                                                            <span className="text-gray-600">Processing Method:</span>
+                                                            <span className="font-medium text-purple-600">
+                                                                {log.details.processingMethod === 'qr_and_vision' ? 'QR + Vision' :
+                                                                 log.details.processingMethod === 'google_vision_only' ? 'Vision Only' :
+                                                                 log.details.processingMethod || 'Unknown'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex justify-between py-1 border-b border-gray-200">
+                                                            <span className="text-gray-600">Had QR Code:</span>
+                                                            <span className={`font-medium ${log.details.hasQRCode ? 'text-green-600' : 'text-gray-600'}`}>
+                                                                {log.details.hasQRCode ? 'Yes' : 'No'}
+                                                            </span>
+                                                        </div>
+                                                        {log.details.textExtracted !== undefined && (
+                                                            <div className="flex justify-between py-1 border-b border-gray-200 col-span-2">
+                                                                <span className="text-gray-600">Text Extracted:</span>
+                                                                <span className="font-medium text-indigo-600">
+                                                                    {log.details.textExtracted} characters
                                                                 </span>
                                                             </div>
                                                         )}

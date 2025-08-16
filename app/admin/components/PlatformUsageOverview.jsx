@@ -1,4 +1,4 @@
-// components/admin/PlatformUsageOverview.jsx
+// components/admin/PlatformUsageOverview.jsx - Enhanced with Business Card Scanning
 "use client"
 
 export default function PlatformUsageOverview({ stats }) {
@@ -82,6 +82,27 @@ export default function PlatformUsageOverview({ stats }) {
                         <div className="text-xs text-gray-600">Avg Cost/Run</div>
                     </div>
                 </div>
+
+                {/* Additional metrics for Business Card Scanning */}
+                {featureKey === 'businessCardScan' && featureStats.successRate !== undefined && (
+                    <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div className="text-center p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                            <div className="text-lg font-bold text-indigo-600">{featureStats.successRate}%</div>
+                            <div className="text-xs text-gray-600">Success Rate</div>
+                        </div>
+                        <div className="text-center p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                            <div className="text-lg font-bold text-teal-600">
+                                {featureStats.averageProcessingTime ? 
+                                    `${(featureStats.averageProcessingTime / 1000).toFixed(1)}s` : 'N/A'}
+                            </div>
+                            <div className="text-xs text-gray-600">Avg Processing Time</div>
+                        </div>
+                        <div className="text-center p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                            <div className="text-lg font-bold text-amber-600 capitalize">{featureStats.currentTier || 'Unknown'}</div>
+                            <div className="text-xs text-gray-600">Current Tier</div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     };
@@ -96,12 +117,14 @@ export default function PlatformUsageOverview({ stats }) {
             {/* Places Search API Section */}
             {renderFeatureCard('placesSearch', 'Places Search API (Legacy)', '🔍')}
 
-            {/* Places Autocomplete API Section - NEW */}
+            {/* Places Autocomplete API Section */}
             {renderFeatureCard('placesAutocomplete', 'Places Autocomplete API', '📝')}
 
-            {/* Places Details API Section - NEW */}
+            {/* Places Details API Section */}
             {renderFeatureCard('placesDetails', 'Places Details API', '📋')}
 
+            {/* Business Card Scanning API Section - NEW */}
+            {renderFeatureCard('businessCardScan', 'Business Card Scanning API', '📇')}
 
             {/* Combined Platform Summary */}
             <div className="border-t pt-6">
@@ -153,8 +176,9 @@ export default function PlatformUsageOverview({ stats }) {
             {/* Cost Alerts */}
             {(stats.groupGeneration?.usagePercentage || 0) >= 80 || 
              (stats.placesSearch?.usagePercentage || 0) >= 80 ||
-             (stats.placesAutocomplete?.usagePercentage || 0) >= 80 || // NEW
-             (stats.placesDetails?.usagePercentage || 0) >= 80          // NEW
+             (stats.placesAutocomplete?.usagePercentage || 0) >= 80 ||
+             (stats.placesDetails?.usagePercentage || 0) >= 80 ||
+             (stats.businessCardScan?.usagePercentage || 0) >= 80 // NEW
             ? (
                 <div className="mt-6 space-y-3">
                     {/* Auto-Grouping Alert */}
@@ -209,7 +233,7 @@ export default function PlatformUsageOverview({ stats }) {
                         </div>
                     )}
 
-                    {/* Places Autocomplete Alert - NEW */}
+                    {/* Places Autocomplete Alert */}
                     {(stats.placesAutocomplete?.usagePercentage || 0) >= 80 && (
                         <div className={`p-4 rounded-lg border ${
                             stats.placesAutocomplete.usagePercentage >= 95 ? 'bg-red-50 border-red-200 text-red-800' :
@@ -235,7 +259,7 @@ export default function PlatformUsageOverview({ stats }) {
                         </div>
                     )}
 
-                    {/* Places Details Alert - NEW */}
+                    {/* Places Details Alert */}
                     {(stats.placesDetails?.usagePercentage || 0) >= 80 && (
                         <div className={`p-4 rounded-lg border ${
                             stats.placesDetails.usagePercentage >= 95 ? 'bg-red-50 border-red-200 text-red-800' :
@@ -260,6 +284,33 @@ export default function PlatformUsageOverview({ stats }) {
                             </div>
                         </div>
                     )}
+
+                    {/* Business Card Scanning Alert - NEW */}
+                    {(stats.businessCardScan?.usagePercentage || 0) >= 80 && (
+                        <div className={`p-4 rounded-lg border ${
+                            stats.businessCardScan.usagePercentage >= 95 ? 'bg-red-50 border-red-200 text-red-800' :
+                            stats.businessCardScan.usagePercentage >= 90 ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
+                            'bg-blue-50 border-blue-200 text-blue-800'
+                        }`}>
+                            <div className="flex items-center">
+                                <span className="text-lg mr-2">
+                                    {stats.businessCardScan.usagePercentage >= 95 ? '🚨' : 
+                                     stats.businessCardScan.usagePercentage >= 90 ? '⚠️' : 'ℹ️'}
+                                </span>
+                                <div>
+                                    <div className="font-medium">
+                                        Business Card Scanning API: {stats.businessCardScan.usagePercentage >= 95 ? 'Critical Usage' :
+                                                                    stats.businessCardScan.usagePercentage >= 90 ? 'High Usage' : 'Notice'}
+                                    </div>
+                                    <div className="text-sm mt-1">
+                                        {formatNumber(Math.max(0, (stats.businessCardScan.freeLimit || 0) - (stats.businessCardScan.totalCalls || 0)))} free scans remaining.
+                                        Current tier: {stats.businessCardScan.currentTier || 'Unknown'}. 
+                                        Next tier: {stats.businessCardScan.totalCalls > 1000 ? '$0.0015 per scan' : '$0.0015 per scan after 1,000'}.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div className="mt-6 p-4 rounded-lg border border-green-200 bg-green-50 text-green-800 flex items-center">
@@ -267,7 +318,6 @@ export default function PlatformUsageOverview({ stats }) {
                     All API usage is currently well within free limits.
                 </div>
             )}
-
 
             {/* Top Users Section */}
             {stats.topUsers && stats.topUsers.length > 0 && (
@@ -299,6 +349,7 @@ export default function PlatformUsageOverview({ stats }) {
                                         <div>Search: {formatCurrency(user.placesSearch.cost)}</div>
                                         <div>Autocomplete: {formatCurrency(user.placesAutocomplete.cost)}</div>
                                         <div>Details: {formatCurrency(user.placesDetails.cost)}</div>
+                                        <div>Card Scan: {formatCurrency(user.businessCardScan.cost)}</div>
                                     </div>
                                 </div>
                             </div>

@@ -5,11 +5,13 @@ import { useTranslation } from '@/lib/translation/useTranslation';
 import { toast } from 'react-hot-toast';
 import { useState, useRef, useEffect } from 'react';
 import { scanBusinessCard } from '@/lib/services/contactsService';
+import imageCompression from 'browser-image-compression'; // --- NEW: Import library ---
 
 export default function BusinessCardScanner({ isOpen, onClose, onContactParsed }) {
     const { t } = useTranslation();
     const [isProcessing, setIsProcessing] = useState(false);
     const [capturedImage, setCapturedImage] = useState(null);
+    const [processingStatus, setProcessingStatus] = useState(''); // --- NEW: For detailed status ---
     const [showCamera, setShowCamera] = useState(false);
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
@@ -167,10 +169,8 @@ export default function BusinessCardScanner({ isOpen, onClose, onContactParsed }
         console.log('🧹 Input cleared for reuse');
     };
 
-    // ✅ FONCTION PRINCIPALE CORRIGÉE - processImage
-    const processImage = async () => {
+   const processImage = async () => {
         if (!capturedImage) {
-            console.error('❌ No captured image to process');
             toast.error('No image to process');
             return;
         }
@@ -178,202 +178,49 @@ export default function BusinessCardScanner({ isOpen, onClose, onContactParsed }
         setIsProcessing(true);
         
         try {
-            console.log('📷 Starting robust image processing...', {
-                fileName: capturedImage.name,
-                fileType: capturedImage.type,
-                fileSize: capturedImage.size,
-                lastModified: new Date(capturedImage.lastModified).toISOString()
-            });
-
-            // Step 1: Validate the File object thoroughly
-            if (!(capturedImage instanceof File) && !(capturedImage instanceof Blob)) {
-                throw new Error('Invalid file object - not a File or Blob');
-            }
-
-            if (capturedImage.size === 0) {
-                throw new Error('File is empty (0 bytes)');
-            }
-
-            if (capturedImage.size > 15 * 1024 * 1024) {
-                throw new Error('File too large (max 15MB)');
-            }
-
-            if (!capturedImage.type.startsWith('image/')) {
-                throw new Error(`Invalid file type: ${capturedImage.type}`);
-            }
-
-            toast.loading(t('business_card_scanner.scanning_card') || 'Scanning business card...', { id: 'scanning-toast' });
-
-            // Step 2: Convert File to ArrayBuffer, then to base64
-            console.log('📷 Converting File to ArrayBuffer...');
-            const arrayBuffer = await capturedImage.arrayBuffer();
+            // --- NEW: Client-Side Image Compression Step ---
+            setProcessingStatus(t('business_card_scanner.compressing_image') || 'Compressing image...');
+            console.log(`Original image size: ${(capturedImage.size / 1024 / 1024).toFixed(2)} MB`);
             
-            if (!arrayBuffer || arrayBuffer.byteLength === 0) {
-                throw new Error('Failed to read file - ArrayBuffer is empty');
-            }
+            const options = {
+                maxSizeMB: 1.5,
+                maxWidthOrHeight: 1920,
+                useWebWorker: true,
+                initialQuality: 0.8
+            };
+            const compressedFile = await imageCompression(capturedImage, options);
+            console.log(`Compressed image size: ${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`);
+            // --- End of Compression Step ---
 
-            console.log('📷 ArrayBuffer created successfully:', {
-                byteLength: arrayBuffer.byteLength,
-                sizeKB: Math.round(arrayBuffer.byteLength / 1024)
-            });
+            setProcessingStatus(t('business_card_scanner.scanning_card') || 'Scanning business card...');
+            toast.loading(processingStatus, { id: 'scanning-toast' });
 
-            // Step 3: Convert ArrayBuffer to base64 - VERSION SIMPLIFIÉE ET FIABLE
-            console.log('📷 Converting ArrayBuffer to base64...');
-            const uint8Array = new Uint8Array(arrayBuffer);
-            
-            // Méthode la plus simple et fiable
-            let binaryString = '';
-            for (let i = 0; i < uint8Array.length; i++) {
-                binaryString += String.fromCharCode(uint8Array[i]);
-            }
-            const base64String = btoa(binaryString);
-
-            console.log('📷 Base64 conversion completed:', {
-                originalSizeBytes: uint8Array.length,
-                base64Length: base64String.length,
-                estimatedSizeKB: Math.round((base64String.length * 0.75) / 1024),
-                isValidBase64: /^[A-Za-z0-9+/]*={0,2}$/.test(base64String),
-                preview: base64String.substring(0, 50) + '...'
-            });
-
-            // Step 4: Validate the base64 string
-            if (!base64String || base64String.length === 0) {
-                throw new Error('Base64 conversion resulted in empty string');
-            }
-
-            if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64String)) {
-                throw new Error('Generated base64 string failed validation');
-            }
-
-            if (base64String.length < 100) {
-                throw new Error('Base64 string too short - likely corrupted');
-            }
-
-            // Step 5: ✅ APPEL CORRECT À scanBusinessCard - AVEC JUSTE LE STRING BASE64
-            console.log('📷 Calling scanBusinessCard with base64 string...');
-            console.log('📷 Final payload size check:', {
-                base64Length: base64String.length,
-                estimatedBytes: base64String.length * 0.75,
-                estimatedKB: Math.round((base64String.length * 0.75) / 1024)
-            });
-
-            // ✅ CRUCIAL: Passer SEULEMENT le string base64, PAS un objet !
-            const scanResult = await scanBusinessCard(base64String);
+            // The scanBusinessCard service function is robust enough to handle the File object directly
+            const scanResult = await scanBusinessCard(compressedFile);
 
             toast.dismiss('scanning-toast');
 
-            console.log('📷 Scan completed with result:', {
-                success: scanResult.success,
-                fieldsCount: scanResult.parsedFields?.length || 0,
-                hasError: !!scanResult.error,
-                processingMethod: scanResult.metadata?.processingMethod
-            });
-
             if (scanResult.success) {
-                console.log('✅ Scan successful!', {
-                    fieldsFound: scanResult.parsedFields?.length || 0,
-                    fieldsWithData: scanResult.parsedFields?.filter(f => f.value && f.value.trim()).length || 0,
-                    hasQRCode: scanResult.metadata?.hasQRCode || false,
-                    processingMethod: scanResult.metadata?.processingMethod || 'unknown'
-                });
-
-                // Check if we actually got useful data
-                const fieldsWithData = scanResult.parsedFields?.filter(f => f.value && f.value.trim()) || [];
-                const hasUsefulData = fieldsWithData.length > 1 || fieldsWithData.some(f => 
-                    f.label.toLowerCase().includes('email') || 
-                    f.label.toLowerCase().includes('name') ||
-                    f.label.toLowerCase().includes('phone')
-                );
-
-                // ✅ CORRECTION: Appeler onContactParsed SEULEMENT avec les fields parsés
-                console.log('📷 Calling onContactParsed with parsed fields:', scanResult.parsedFields?.length, 'fields');
                 onContactParsed(scanResult.parsedFields);
-
-                if (hasUsefulData) {
-                    toast.success(t('business_card_scanner.scan_complete') || 'Scan complete!');
-                } else {
-                    toast('ℹ️ Scan completed but limited data found. Please review and fill in manually.', { 
-                        duration: 5000,
-                        icon: 'ℹ️'
-                    });
-                }
-
-                // Show additional info
+                toast.success(t('business_card_scanner.scan_complete') || 'Scan complete!');
+                
                 if (scanResult.metadata?.hasQRCode) {
-                    toast.success('🔳 QR Code detected!', { duration: 3000 });
-                }
-
-                if (scanResult.metadata?.processingMethod === 'fallback') {
-                    toast('ℹ️ Manual entry required - automatic scanning unavailable', { 
-                        duration: 4000,
-                        icon: 'ℹ️'
-                    });
+                    toast.success('🔳 QR Code detected and parsed!', { duration: 3000 });
                 }
             } else {
-                console.error('❌ Scan failed:', scanResult.error);
                 toast.error(scanResult.error || t('business_card_scanner.scan_failed') || 'Scan failed');
-                
-                // Still pass the empty fields for manual entry
                 if (scanResult.parsedFields) {
-                    console.log('📷 Calling onContactParsed with fallback fields');
                     onContactParsed(scanResult.parsedFields);
                 }
             }
 
         } catch (error) {
             toast.dismiss('scanning-toast');
-            console.error('❌ Image processing error:', {
-                message: error.message,
-                stack: error.stack,
-                name: error.name,
-                fileDetails: capturedImage ? {
-                    name: capturedImage.name,
-                    size: capturedImage.size,
-                    type: capturedImage.type
-                } : 'No file'
-            });
-
-            // Provide specific error messages based on the error type
-            let errorMessage = t('business_card_scanner.processing_failed') || 'Processing failed';
-
-            if (error.message.includes('Token expired') || error.message.includes('auth/')) {
-                errorMessage = t('auth.token_expired') || 'Session expired. Please refresh the page.';
-            } else if (error.message.includes('Too many requests') || error.message.includes('429')) {
-                errorMessage = t('business_card_scanner.rate_limit') || 'Too many scan requests. Please try again in a moment.';
-            } else if (error.message.includes('Service temporarily unavailable') || error.message.includes('503')) {
-                errorMessage = t('business_card_scanner.service_unavailable') || 'Scanning service is temporarily unavailable.';
-            } else if (error.message.includes('File is empty') || error.message.includes('ArrayBuffer is empty')) {
-                errorMessage = t('business_card_scanner.empty_file') || 'The image file appears to be empty. Please try taking another photo.';
-            } else if (error.message.includes('File too large')) {
-                errorMessage = t('business_card_scanner.file_too_large') || 'Image file is too large. Please try a smaller image.';
-            } else if (error.message.includes('Invalid file type')) {
-                errorMessage = t('business_card_scanner.invalid_file_type') || 'Invalid file type. Please select an image file.';
-            } else if (error.message.includes('Base64')) {
-                errorMessage = t('business_card_scanner.conversion_failed') || 'Failed to process image data. Please try again with a different image.';
-            } else if (error.message.includes('NetworkError') || error.message.includes('fetch')) {
-                errorMessage = t('business_card_scanner.network_error') || 'Network error. Please check your connection and try again.';
-            }
-
-            toast.error(errorMessage);
-
-            // Provide fallback empty form for manual entry
-            try {
-                const fallbackFields = [
-                    { label: 'Name', value: '', type: 'standard' },
-                    { label: 'Email', value: '', type: 'standard' },
-                    { label: 'Phone', value: '', type: 'standard' },
-                    { label: 'Company', value: '', type: 'standard' },
-                    { label: 'Job Title', value: '', type: 'custom' },
-                    { label: 'Note', value: 'Automatic scanning failed - please fill manually', type: 'custom' }
-                ];
-                console.log('📷 Calling onContactParsed with fallback fields due to error');
-                onContactParsed(fallbackFields);
-            } catch (fallbackError) {
-                console.error('❌ Even fallback failed:', fallbackError);
-            }
-
+            console.error('❌ Image processing error:', error);
+            toast.error(error.message || t('business_card_scanner.processing_failed') || 'Processing failed');
         } finally {
             setIsProcessing(false);
+            setProcessingStatus('');
         }
     };
 
@@ -602,25 +449,25 @@ export default function BusinessCardScanner({ isOpen, onClose, onContactParsed }
                                         <span className="sm:hidden">{t('business_card_scanner.retake') || 'Retake'}</span>
                                     </button>
                                     <button
-                                        onClick={processImage}
-                                        disabled={isProcessing}
-                                        className="flex-1 px-3 sm:px-4 py-2 sm:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 font-medium text-sm sm:text-base"
-                                    >
-                                        {isProcessing && (
-                                            <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-white"></div>
-                                        )}
-                                        {isProcessing ? (
-                                            <span>{t('business_card_scanner.processing') || 'Processing...'}</span>
-                                        ) : (
-                                            <>
-                                                <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                                </svg>
-                                                <span className="hidden sm:inline">{t('business_card_scanner.scan_card') || 'Scan Card'}</span>
-                                                <span className="sm:hidden">{t('business_card_scanner.scan') || 'Scan'}</span>
-                                            </>
-                                        )}
-                                    </button>
+        onClick={processImage}
+        disabled={isProcessing}
+        className="flex-1 px-3 sm:px-4 py-2 sm:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 font-medium text-sm sm:text-base"
+    >
+        {isProcessing ? (
+            <>
+                <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-white"></div>
+                <span>{processingStatus || (t('business_card_scanner.processing') || 'Processing...')}</span>
+            </>
+        ) : (
+            <>
+                <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <span className="hidden sm:inline">{t('business_card_scanner.scan_card') || 'Scan Card'}</span>
+                <span className="sm:hidden">{t('business_card_scanner.scan') || 'Scan'}</span>
+            </>
+        )}
+    </button>
                                 </div>
 
                                 {/* Pro tip */}

@@ -1,308 +1,114 @@
-// app/dashboard/(dashboard pages)/contacts/page.jsx - FINAL COMPLETE VERSION
 "use client"
+
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { toast } from 'react-hot-toast';
 import dynamic from 'next/dynamic';
+import { useAuth } from "@/contexts/AuthContext";
+import { useContactsManager } from './components/useContactsManager'; // <-- The new custom hook
+
+// --- Import only the action functions needed by the UI ---
+import {
+    createContactFromScan, updateContact, deleteContact, updateContactStatus,
+    createContactGroup, deleteContactGroup, generateAutoGroups,
+    shareContactsWithTeam, getTeamMembersForSharing
+} from '@/lib/services/contactsService';
+import { CONTACT_FEATURES, getContactUpgradeMessage } from '@/lib/services/contactSubscriptionService';
+
+// --- Import Components ---
 import BusinessCardScanner from './components/BusinessCardScanner';
 import ContactReviewModal from './components/ContactReviewModal';
 import { ShareContactsModal } from './components/ShareContactsModal';
 import GroupManagerModal from './components/GroupManagerModal';
-import { useAuth } from "@/contexts/AuthContext";
-import {
-    getContacts, createContact, updateContact, deleteContact, updateContactStatus,
-    scanBusinessCard, createContactFromScan, checkContactSharingEnabled,
-    getTeamMembersForSharing, shareContactsWithTeam, getContactStats,
-    getContactGroups, createContactGroup, updateContactGroup, deleteContactGroup,
-    generateAutoGroups
-} from '@/lib/services/contactsService';
-import {
-    getContactSubscriptionStatus, CONTACT_FEATURES, getContactUpgradeMessage
-} from '@/lib/services/contactSubscriptionService';
 
-// --- MAIN COMPONENT ---
-export default function SubscriptionAwareContactsPage() {
+// =============================================================================
+// --- MAIN PAGE COMPONENT ---
+// =============================================================================
+export default function ContactsPage() {
     const { t } = useTranslation();
     const { currentUser } = useAuth();
 
-    // --- STATE HOOKS (All at the top) ---
-    const [subscriptionStatus, setSubscriptionStatus] = useState(null);
-    const [subscriptionLoading, setSubscriptionLoading] = useState(true);
-    const [subscriptionError, setSubscriptionError] = useState(null);
+    // --- All complex state and data logic is now managed by the hook ---
+    const {
+        contacts, allOriginalContacts, groups, stats, loading, pagination,
+        subscriptionStatus, subscriptionLoading, subscriptionError,
+        filter, setFilter, searchTerm, setSearchTerm, selectedGroupIds, setSelectedGroupIds,
+        reloadData
+    } = useContactsManager(currentUser);
 
-    const [contacts, setContacts] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [filter, setFilter] = useState('all');
-    const [searchTerm, setSearchTerm] = useState('');
+    // --- UI-only state remains in the component ---
     const [selectedContacts, setSelectedContacts] = useState([]);
-
     const [showScanner, setShowScanner] = useState(false);
     const [showReviewModal, setShowReviewModal] = useState(false);
     const [scannedFields, setScannedFields] = useState(null);
     const [showShareModal, setShowShareModal] = useState(false);
-    const [teamSharingEnabled, setTeamSharingEnabled] = useState(false);
     const [selectionMode, setSelectionMode] = useState(false);
-
     const [showMap, setShowMap] = useState(false);
     const [selectedContactForMap, setSelectedContactForMap] = useState(null);
     const [editingContact, setEditingContact] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
-
-    const [groups, setGroups] = useState([]);
-    const [selectedGroupIds, setSelectedGroupIds] = useState([]);
     const [showGroupManager, setShowGroupManager] = useState(false);
-    const [groupsLoading, setGroupsLoading] = useState(false);
-    const [autoGroupsEnabled, setAutoGroupsEnabled] = useState(true);
 
-
-   // FIX 1: Provide a more complete and safe initial state for stats.
-    const [contactStats, setContactStats] = useState({ 
-        total: 0, 
-        byStatus: { new: 0, viewed: 0, archived: 0 }, 
-        locationStats: { total: 0, withLocation: 0, withoutLocation: 0 }, 
-        groupStats: { total: 0, autoGroups: 0, customGroups: 0 } 
-    });    const [pagination, setPagination] = useState({ limit: 100, offset: 0, hasMore: false });
-
-    // --- DATA LOADING & ACTIONS (wrapped in useCallback for stability) ---
-    const loadGroups = useCallback(async () => {
-        if (!subscriptionStatus?.features.includes(CONTACT_FEATURES.BASIC_GROUPS)) return;
-        setGroupsLoading(true);
+    // --- Action Handlers that modify state and then reload data ---
+    const handleGroupAction = async (action, data) => {
+        const toastId = toast.loading('Processing group action...');
         try {
-            const result = await getContactGroups();
-            setGroups(result.groups || []);
+            if (action === 'create') await createContactGroup(data);
+            else if (action === 'delete') await deleteContactGroup(data);
+            else if (action === 'generate') await generateAutoGroups();
+            
+            toast.success('Group action successful!', { id: toastId });
+            await reloadData(); // Reload all data to reflect changes
         } catch (error) {
-            toast.error(t('contacts.failed_to_load_groups') || 'Failed to load groups');
-        } finally {
-            setGroupsLoading(false);
+            toast.error(`Failed: ${error.message}`, { id: toastId });
         }
-    }, [t, subscriptionStatus]);
+    };
 
-    const loadContacts = useCallback(async (options = {}) => {
-        setLoading(true);
+    const handleContactAction = async (action, data) => {
+        const toastId = toast.loading('Updating contact...');
         try {
-            const filters = {
-                status: filter !== 'all' ? filter : undefined,
-                search: searchTerm || undefined,
-                limit: pagination.limit,
-                offset: options.append ? pagination.offset : 0
-            };
-            const result = await getContacts(filters);
-            setContacts(prev => options.append ? [...prev, ...result.contacts] : result.contacts);
-            setPagination(prev => ({
-                ...prev,
-                offset: options.append ? prev.offset + result.count : result.count,
-                hasMore: result.pagination?.hasMore || false
-            }));
-            setContactStats(await getContactStats());
-        } catch (error) {
-            if (error.type === 'subscription') {
-                toast.error(error.upgradeMessage || 'Access denied by subscription.');
-                setSubscriptionError(error.message);
-            } else {
-                toast.error(t('contacts.failed_to_load') || 'Failed to load contacts');
+            if (action === 'update') {
+                await updateContact(data);
+                setShowEditModal(false);
             }
-        } finally {
-            setLoading(false);
-        }
-    }, [filter, searchTerm, pagination.limit, pagination.offset, t]);
-
-    // --- SIDE EFFECTS (useEffect hooks, all at the top) ---
-
-    useEffect(() => {
-        if (!currentUser) return;
-        const checkSubscription = async () => {
-            setSubscriptionLoading(true);
-            try {
-                const status = await getContactSubscriptionStatus();
-                setSubscriptionStatus(status);
-            } catch (err) {
-                setSubscriptionError("Failed to load subscription information.");
-            } finally {
-                setSubscriptionLoading(false);
+            else if (action === 'delete') {
+                if (!confirm('Are you sure you want to delete this contact?')) {
+                    toast.dismiss(toastId);
+                    return;
+                }
+                await deleteContact(data);
             }
-        };
-        checkSubscription();
-    }, [currentUser]);
-
-    useEffect(() => {
-        if (!subscriptionStatus?.canAccessContacts) return;
-        const handler = setTimeout(() => {
-            Promise.all([
-                loadContacts({ append: false }),
-                loadGroups()
-            ]);
-        }, 300);
-        return () => clearTimeout(handler);
-    }, [subscriptionStatus, filter, searchTerm, loadContacts, loadGroups]);
-
-    // --- HANDLER FUNCTIONS ---
-    
-    const generateAutomaticGroups = async () => {
-        if (!subscriptionStatus?.features.includes(CONTACT_FEATURES.BASIC_GROUPS)) {
-            toast.error('Group creation requires a higher subscription.');
-            return;
-        }
-        try {
-            setGroupsLoading(true);
-            toast.loading('Generating automatic groups...', { id: 'auto-groups' });
-            const result = await generateAutoGroups({
-                groupByCompany: subscriptionStatus.features.includes(CONTACT_FEATURES.BASIC_GROUPS),
-                groupByLocation: subscriptionStatus.features.includes(CONTACT_FEATURES.ADVANCED_GROUPS),
-                groupByEvents: subscriptionStatus.features.includes(CONTACT_FEATURES.EVENT_DETECTION),
-            });
-            toast.dismiss('auto-groups');
-            if (result.success) {
-                toast.success(`Generated ${result.groupsCreated} automatic groups!`);
-                await loadGroups();
-            } else {
-                toast.error(result.error || 'Failed to generate groups');
+            else if (action === 'statusUpdate') {
+                await updateContactStatus(data.id, data.status);
             }
+            
+            toast.success('Contact updated!', { id: toastId });
+            await reloadData();
         } catch (error) {
-            toast.dismiss('auto-groups');
-            toast.error('Failed to generate automatic groups');
-        } finally {
-            setGroupsLoading(false);
-        }
-    };
-
-    const handleGroupCreation = async (groupData) => {
-        try {
-            const result = await createContactGroup(groupData);
-            if (result.success) {
-                toast.success(`Group "${groupData.name}" created!`);
-                await loadGroups();
-                return result.groupId;
-            } else {
-                throw new Error(result.error || 'Failed to create group');
-            }
-        } catch (error) {
-            toast.error(error.message || 'Failed to create group');
-            throw error;
-        }
-    };
-
-    const handleDeleteGroup = async (groupId) => {
-        const group = groups.find(g => g.id === groupId);
-        if (!group) return;
-        if (!confirm(`Are you sure you want to delete the group "${group.name}"?`)) return;
-        try {
-            await deleteContactGroup(groupId);
-            toast.success('Group deleted');
-            await loadGroups();
-            setSelectedGroupIds(prev => prev.filter(id => id !== groupId));
-        } catch (error) {
-            toast.error('Failed to delete group');
-        }
-    };
-
-    const handleSaveEditedContact = async (updatedContact) => {
-        try {
-            await updateContact(updatedContact);
-            toast.success('Contact updated successfully');
-            setContacts(prev => prev.map(c => (c.id === updatedContact.id ? updatedContact : c)));
-            setShowEditModal(false);
-            setEditingContact(null);
-            if (autoGroupsEnabled) setTimeout(generateAutomaticGroups, 1000);
-        } catch (error) {
-            toast.error('Failed to update contact');
-            throw error;
-        }
-    };
-
-    const handleStatusUpdate = async (contactId, newStatus) => {
-        try {
-            await updateContactStatus(contactId, newStatus);
-            setContacts(prev => prev.map(c => c.id === contactId ? { ...c, status: newStatus, lastModified: new Date().toISOString() } : c));
-            toast.success('Status updated');
-        } catch (error) {
-            toast.error('Failed to update status');
-        }
-    };
-
-    const handleDeleteContact = async (contactId) => {
-        if (!confirm('Are you sure you want to delete this contact?')) return;
-        try {
-            await deleteContact(contactId);
-            setContacts(prev => prev.filter(c => c.id !== contactId));
-            toast.success('Contact deleted');
-            await loadGroups();
-        } catch (error) {
-            toast.error('Failed to delete contact');
+            toast.error(`Failed: ${error.message}`, { id: toastId });
         }
     };
 
     const saveScannedContact = async (fields) => {
+        const toastId = toast.loading('Saving scanned contact...');
         try {
             await createContactFromScan(fields);
-            toast.success('Contact created successfully!');
-            await loadContacts();
-            if (autoGroupsEnabled) setTimeout(generateAutomaticGroups, 1000);
+            toast.success('Contact saved!', { id: toastId });
             setShowReviewModal(false);
             setScannedFields(null);
+            await reloadData();
         } catch (error) {
-            toast.error('Failed to save contact');
-            throw error;
-        }
-    };
-    
-    const handleBusinessCardScan = async (imageData) => {
-        if (!subscriptionStatus?.features.includes(CONTACT_FEATURES.BUSINESS_CARD_SCANNER)) {
-            toast.error('Business card scanning requires a higher subscription.');
-            return;
-        }
-        try {
-            toast.loading('Scanning card...', { id: 'scanning-toast' });
-            const result = await scanBusinessCard(imageData);
-            toast.dismiss('scanning-toast');
-            if (result.success) {
-                setScannedFields(result.parsedFields);
-                setShowReviewModal(true);
-                setShowScanner(false);
-                toast.success('Scan complete!');
-            } else {
-                toast.error(result.error || 'Scan failed');
-            }
-        } catch (error) {
-            toast.dismiss('scanning-toast');
-            toast.error('Processing failed');
+            toast.error(`Failed: ${error.message}`, { id: toastId });
+            throw error; // Re-throw for the modal to handle its own loading state
         }
     };
 
-  
-
-    const handleShareSelected = () => {
-        if (!subscriptionStatus?.canShareWithTeam) {
-            toast.error('Team sharing requires a higher subscription.');
-            return;
-        }
-        if (selectedContacts.length === 0) {
-            toast.error('Please select contacts to share');
-            return;
-        }
-        setShowShareModal(true);
-    };
-
-    const openContactMap = (contact = null) => {
-        if (!subscriptionStatus?.features.includes(CONTACT_FEATURES.MAP_VISUALIZATION)) {
-            toast.error('Map visualization requires a higher subscription.');
-            return;
-        }
-        setSelectedContactForMap(contact);
-        setShowMap(true);
-    };
-
-    const loadMoreContacts = () => {
-        if (!loading && pagination.hasMore) {
-            loadContacts({ append: true });
-        }
-    };
-
-    // --- CONDITIONAL RENDERING ---
+    // --- Conditional Rendering for loading/error states ---
     if (subscriptionLoading) {
-        return <div className="flex-1 flex items-center justify-center h-full"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div><span className="ml-3 text-sm">Checking subscription...</span></div>;
+        return <div className="flex-1 flex items-center justify-center h-full"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div></div>;
     }
     if (subscriptionError) {
-        return <div className="flex-1 flex items-center justify-center h-full text-center"><p className="text-red-500 mb-4">⚠️ {subscriptionError}</p></div>;
+        return <div className="flex-1 flex items-center justify-center h-full"><p className="text-red-500">⚠️ {subscriptionError}</p></div>;
     }
     if (!subscriptionStatus?.canAccessContacts) {
         return <ContactsUpgradeRequired subscriptionStatus={subscriptionStatus} />;
@@ -311,47 +117,141 @@ export default function SubscriptionAwareContactsPage() {
         return <div className="flex items-center justify-center p-8 min-h-[400px]"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div></div>;
     }
 
-    const filteredContacts = contacts.filter(contact => {
-        const matchesFilter = filter === 'all' || contact.status === filter;
-        const matchesSearch = !searchTerm || contact.name.toLowerCase().includes(searchTerm.toLowerCase()) || contact.email.toLowerCase().includes(searchTerm.toLowerCase()) || (contact.company && contact.company.toLowerCase().includes(searchTerm.toLowerCase()));
-        let matchesGroup = true;
-        if (selectedGroupIds.length > 0) {
-            matchesGroup = selectedGroupIds.some(groupId => {
-                const group = groups.find(g => g.id === groupId);
-                return group && group.contactIds.includes(contact.id);
-            });
-        }
-        return matchesFilter && matchesSearch && matchesGroup;
-    });
-
-  // FIX 2: Safely access properties using optional chaining (?.) and providing defaults (|| 0).
     const counts = { 
-        all: contactStats?.total || 0, 
-        new: contactStats?.byStatus?.new || 0, 
-        viewed: contactStats?.byStatus?.viewed || 0, 
-        archived: contactStats?.byStatus?.archived || 0, 
-        groups: contactStats?.groupStats?.total || 0, 
-        withLocation: contactStats?.locationStats?.withLocation || 0
+        all: stats?.total || 0, 
+        new: stats?.byStatus?.new || 0, 
+        viewed: stats?.byStatus?.viewed || 0, 
+        archived: stats?.byStatus?.archived || 0, 
+        withLocation: stats?.locationStats?.withLocation || 0
     };
-    // --- MAIN RENDER ---
+
+    // --- Main Render ---
     return (
         <div className="flex-1 py-2 flex flex-col max-h-full overflow-y-auto pb-20">
-            <EditContactModal contact={editingContact} isOpen={showEditModal} onClose={() => { setShowEditModal(false); setEditingContact(null); }} onSave={handleSaveEditedContact} />
-            <GroupManagerModal isOpen={showGroupManager} onClose={() => setShowGroupManager(false)} groups={groups} contacts={contacts} onCreateGroup={handleGroupCreation} onDeleteGroup={handleDeleteGroup} onGenerateAutoGroups={generateAutomaticGroups} loading={groupsLoading} />
-            {showMap && <div className="fixed inset-0 bg-white z-[9999] flex flex-col md:bg-black md:bg-opacity-50 md:items-center md:justify-center md:p-2"><div className="bg-white w-full h-full rounded-xl md:shadow-xl md:max-w-[98vw] md:max-h-[90vh] flex flex-col mt-14 md:mt-20"><div className="flex items-center justify-between p-4 border-b flex-shrink-0 bg-white"><h2 className="text-lg font-semibold">{selectedContactForMap ? t('contacts.location_for_contact', { name: selectedContactForMap.name }) : t('contacts.all_contact_locations')}</h2><button onClick={() => setShowMap(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button></div><div className="flex-1 p-2 md:p-4 min-h-0"><ContactsMap contacts={selectedContactForMap ? [selectedContactForMap] : contacts.filter(c => c.location?.latitude)} selectedContact={selectedContactForMap} groups={groups} selectedGroupIds={selectedGroupIds} onGroupToggle={(gid) => setSelectedGroupIds(p => p.includes(gid) ? p.filter(id => id !== gid) : [...p, gid])} onCreateGroup={handleGroupCreation} /></div></div></div>}
-            <div className="p-3 sm:p-4">
-                <ContactsHeader subscriptionStatus={subscriptionStatus} teamSharingEnabled={teamSharingEnabled} selectionMode={selectionMode} selectedContacts={selectedContacts} onToggleSelectionMode={() => setSelectionMode(!selectionMode)} onSelectAll={() => setSelectedContacts(filteredContacts.map(c => c.id))} onClearSelection={() => setSelectedContacts([])} onShareSelected={handleShareSelected} onScanCard={() => setShowScanner(true)} onOpenGroupManager={() => setShowGroupManager(true)} groupsCount={groups.length} autoGroupsEnabled={autoGroupsEnabled} onGenerateAutoGroups={generateAutomaticGroups} groupsLoading={groupsLoading}  />
-                <MobileFilters filter={filter} setFilter={setFilter} searchTerm={searchTerm} setSearchTerm={setSearchTerm} counts={counts} locationStats={contactStats.locationStats} onMapView={openContactMap} groups={groups} selectedGroupIds={selectedGroupIds} onGroupToggle={(gid) => setSelectedGroupIds(p => p.includes(gid) ? p.filter(id => id !== gid) : [...p, gid])} />
-                <ContactsList contacts={filteredContacts} selectionMode={selectionMode} selectedContacts={selectedContacts} onToggleSelection={(cid) => setSelectedContacts(p => p.includes(cid) ? p.filter(id => id !== cid) : [...p, cid])} onEdit={(c) => { setEditingContact(c); setShowEditModal(true); }} onStatusUpdate={handleStatusUpdate} onDelete={handleDeleteContact} onContactAction={(action, contact) => { if (action === 'email') window.open(`mailto:${contact.email}`); if (action === 'phone' && contact.phone) window.open(`tel:${contact.phone}`); }} onMapView={openContactMap} hasMore={pagination.hasMore} onLoadMore={loadMoreContacts} loading={loading} groups={groups} />
+            {/* --- MODALS --- */}
+            <EditContactModal 
+                contact={editingContact} 
+                isOpen={showEditModal} 
+                onClose={() => setShowEditModal(false)} 
+                onSave={(updatedContact) => handleContactAction('update', updatedContact)} 
+            />
+            <GroupManagerModal 
+                isOpen={showGroupManager} 
+                onClose={() => setShowGroupManager(false)} 
+                groups={groups} 
+                contacts={allOriginalContacts} 
+                onCreateGroup={(data) => handleGroupAction('create', data)} 
+                onDeleteGroup={(id) => handleGroupAction('delete', id)} 
+                onGenerateAutoGroups={() => handleGroupAction('generate')} 
+                loading={loading}
+            />
+            <ShareContactsModal 
+                isOpen={showShareModal} 
+                onClose={() => { setShowShareModal(false); setSelectionMode(false); setSelectedContacts([]); }} 
+                contacts={allOriginalContacts} 
+                selectedContactIds={selectedContacts} 
+                onShare={shareContactsWithTeam} 
+                onGetTeamMembers={getTeamMembersForSharing} 
+            />
+         {showMap && (
+    <div className="fixed inset-0 bg-white z-[9999] flex flex-col md:bg-black md:bg-opacity-50 md:items-center md:justify-center md:p-2">
+        <div className="bg-white w-full h-full rounded-xl md:shadow-xl md:max-w-[98vw] md:max-h-[90vh] flex flex-col mt-14 md:mt-20">
+            <div className="flex items-center justify-between p-4 border-b flex-shrink-0 bg-white">
+                <h2 className="text-lg font-semibold">
+                    {selectedContactForMap ? t('contacts.location_for_contact', { name: selectedContactForMap.name }) : t('contacts.all_contact_locations')}
+                </h2>
+                <button onClick={() => setShowMap(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
             </div>
-            <ShareContactsModal isOpen={showShareModal} onClose={() => { setShowShareModal(false); setSelectionMode(false); setSelectedContacts([]); }} contacts={contacts} selectedContactIds={selectedContacts} onShare={shareContactsWithTeam} onGetTeamMembers={getTeamMembersForSharing} />
-            <BusinessCardScanner isOpen={showScanner} onClose={() => setShowScanner(false)} onContactParsed={(parsedFields) => { setScannedFields(parsedFields); setShowReviewModal(true); setShowScanner(false); toast.success(t('business_card_scanner.scan_complete') || 'Scan complete!'); }} />
-            <ContactReviewModal isOpen={showReviewModal} onClose={() => { setShowReviewModal(false); setScannedFields(null); }} parsedFields={scannedFields} onSave={saveScannedContact} />
+            <div className="flex-1 p-2 md:p-4 min-h-0">
+                <ContactsMap 
+                    contacts={selectedContactForMap ? [selectedContactForMap] : allOriginalContacts.filter(c => c.location?.latitude)} 
+                    selectedContact={selectedContactForMap} 
+                    groups={groups} 
+                    selectedGroupIds={selectedGroupIds}
+                    onGroupToggle={(gid) => setSelectedGroupIds(p => p.includes(gid) ? p.filter(id => id !== gid) : [...p, gid])} 
+                    onCreateGroup={(data) => handleGroupAction('create', data)} 
+                />
+            </div>
+        </div>
+    </div>
+)}
+            
+            <div className="p-3 sm:p-4">
+                {/* --- UI Components --- */}
+                <ContactsHeader 
+                    subscriptionStatus={subscriptionStatus}
+                    selectionMode={selectionMode}
+                    selectedContacts={selectedContacts}
+                    onToggleSelectionMode={() => setSelectionMode(!selectionMode)}
+                    onSelectAll={() => setSelectedContacts(contacts.map(c => c.id))}
+                    onClearSelection={() => setSelectedContacts([])}
+                    onShareSelected={() => setShowShareModal(true)}
+                    onScanCard={() => setShowScanner(true)}
+                    onOpenGroupManager={() => setShowGroupManager(true)}
+                    groupsCount={groups.length}
+                    autoGroupsEnabled={subscriptionStatus?.features.includes(CONTACT_FEATURES.BASIC_GROUPS)}
+                    onGenerateAutoGroups={() => handleGroupAction('generate')}
+                    groupsLoading={loading}
+                />
+                <MobileFilters 
+                    filter={filter} 
+                    setFilter={setFilter} 
+                    searchTerm={searchTerm} 
+                    setSearchTerm={setSearchTerm} 
+                    counts={counts} 
+                    locationStats={stats.locationStats || { withLocation: 0 }}
+                    onMapView={() => { setSelectedContactForMap(null); setShowMap(true); }}
+                    groups={groups}
+                    selectedGroupIds={selectedGroupIds}
+                    onGroupToggle={(gid) => setSelectedGroupIds(p => p.includes(gid) ? p.filter(id => id !== gid) : [...p, gid])}
+                />
+                <ContactsList 
+                    contacts={contacts} 
+                    selectionMode={selectionMode}
+                    selectedContacts={selectedContacts}
+                    onToggleSelection={(cid) => setSelectedContacts(p => p.includes(cid) ? p.filter(id => id !== cid) : [...p, cid])}
+                    onEdit={(c) => { setEditingContact(c); setShowEditModal(true); }}
+                    onStatusUpdate={(id, status) => handleContactAction('statusUpdate', { id, status })}
+                    onDelete={(id) => handleContactAction('delete', id)}
+                    onContactAction={(action, contact) => { 
+                        if (action === 'email' && contact.email) window.open(`mailto:${contact.email}`);
+                        if (action === 'phone' && contact.phone) window.open(`tel:${contact.phone}`);
+                    }}
+                    onMapView={(contact) => { setSelectedContactForMap(contact); setShowMap(true); }}
+                    hasMore={pagination.hasMore}
+                    onLoadMore={() => reloadData({ append: true })}
+                    loading={loading}
+                    groups={groups}
+                />
+            </div>
+            
+            {/* --- Business Card Scanner Flow Modals --- */}
+            <BusinessCardScanner 
+                isOpen={showScanner} 
+                onClose={() => setShowScanner(false)} 
+                onContactParsed={(parsedFields) => {
+                    setScannedFields(parsedFields);
+                    setShowReviewModal(true);
+                    setShowScanner(false);
+                }} 
+            />
+            <ContactReviewModal 
+                isOpen={showReviewModal} 
+                onClose={() => { setShowReviewModal(false); setScannedFields(null); }}
+                parsedFields={scannedFields} 
+                onSave={saveScannedContact} 
+            />
         </div>
     );
 }
 
+
+// =============================================================================
 // --- SUB-COMPONENTS AND UTILS ---
+// (These are kept in the same file as before for simplicity)
+// =============================================================================
 
 function ContactsUpgradeRequired({ subscriptionStatus }) {
     const { t } = useTranslation();
@@ -530,7 +430,7 @@ function ContactsHeader({
         </div>
     );
 }
-// Enhanced Mobile filters with group support
+// Enhanced Mobile filters with group support - FIXED VERSION
 function MobileFilters({ 
     filter, 
     setFilter, 
@@ -552,6 +452,16 @@ function MobileFilters({
         const group = groups.find(g => g.id === groupId);
         return total + (group ? group.contactIds.length : 0);
     }, 0);
+
+    // ✅ FIXED: Add a function to clear all selected groups
+    const handleClearAllGroups = () => {
+        // Clear all selected groups by toggling off each selected group
+        selectedGroupIds.forEach(groupId => {
+            if (onGroupToggle) {
+                onGroupToggle(groupId);
+            }
+        });
+    };
 
     return (
         <div className="bg-white rounded-lg shadow-sm border p-3 sm:p-4 mb-4">
@@ -655,7 +565,7 @@ function MobileFilters({
                         <span className="text-sm font-medium text-gray-700">Select Groups to View</span>
                         {activeGroupsCount > 0 && (
                             <button
-                                onClick={() => setSelectedGroupIds([])}
+                                onClick={handleClearAllGroups}  // ✅ FIXED: Use the new function
                                 className="text-xs text-purple-600 hover:text-purple-800"
                             >
                                 Clear All
@@ -697,8 +607,7 @@ function MobileFilters({
             )}
         </div>
     );
-}
-// Enhanced Contacts list with group indicators
+}// Enhanced Contacts list with group indicators
 function ContactsList({ 
     contacts, 
     selectionMode, 

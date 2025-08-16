@@ -17,7 +17,7 @@ export default function ContactsMap({
     selectedContactId = null, 
     onMarkerClick = null,
     groups = [],
-    selectedGroupIds = [],
+    selectedGroupIds = [],  // ✅ FIXED: This should be the array of selected group IDs
     onGroupToggle = null,
     onGroupCreate = null,
     showGroupClusters = true,
@@ -72,12 +72,11 @@ export default function ContactsMap({
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // Memoized filtered contacts
     const filteredContacts = useMemo(() => {
         return contacts.filter(contact => {
             // Group filter
-            if (selectedGroupIds.length > 0) {
-                const hasSelectedGroup = selectedGroupIds.some(groupId => {
+            if (selectedGroupIds.length > 0) {  // ✅ FIXED: Use selectedGroupIds array
+                const hasSelectedGroup = selectedGroupIds.some(groupId => {  // ✅ FIXED: Use selectedGroupIds array
                     const group = groups.find(g => g.id === groupId);
                     return group && group.contactIds.includes(contact.id);
                 });
@@ -98,7 +97,8 @@ export default function ContactsMap({
 
             return true;
         });
-    }, [contacts, selectedGroupIds, groups, filters]);
+    }, [contacts, selectedGroupIds, groups, filters]);  // ✅ FIXED: Use selectedGroupIds in dependency array
+
 
     // Memoized contacts with location
     const contactsWithLocation = useMemo(() => {
@@ -110,12 +110,11 @@ export default function ContactsMap({
             !isNaN(contact.location.longitude)
         );
     }, [filteredContacts]);
-
-    // Memoized filtered groups
+ // ✅ FIXED: Use selectedGroupIds in the filteredGroups memo too
     const filteredGroups = useMemo(() => {
         return groups.filter(group => {
-            if (selectedGroupIds.length > 0) {
-                return selectedGroupIds.includes(group.id);
+            if (selectedGroupIds.length > 0) {  // ✅ FIXED: Use selectedGroupIds array
+                return selectedGroupIds.includes(group.id);  // ✅ FIXED: Use selectedGroupIds array
             }
             return true;
         }).map(group => ({
@@ -124,7 +123,7 @@ export default function ContactsMap({
                 filteredContacts.some(contact => contact.id === contactId)
             )
         })).filter(group => group.contactIds.length > 0);
-    }, [groups, selectedGroupIds, filteredContacts]);
+    }, [groups, selectedGroupIds, filteredContacts]);  // ✅ FIXED: Use selectedGroupIds in dependency array
 
     // Group Cluster Manager Class - VERSION 2.0
     class GroupClusterManager {
@@ -1028,98 +1027,10 @@ clusterManager.setContactClickHandler((contact) => {
                 ref={mapRef}
             />
 
-            {/* Test Button for Modal (Debug) */}
-            {process.env.NODE_ENV === 'development' && contactsWithLocation.length > 0 && (
-                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 flex gap-2">
-                    <button
-                        onClick={() => {
-                            console.log('🧪 Test button clicked');
-                            setSelectedContact(contactsWithLocation[0]);
-                            setShowContactProfile(true);
-                        }}
-                        className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm"
-                    >
-                        Test Modal ({contactsWithLocation[0]?.name})
-                    </button>
-                    <button
-                        onClick={() => {
-                            console.log('🔍 Checking markers on page...');
-                            const allMarkers = document.querySelectorAll('[class*="contact-marker"]');
-                            const newMarkers = document.querySelectorAll('.NEW_MARKER');
-                            const oldMarkers = document.querySelectorAll('.contact-marker:not(.NEW_MARKER)');
-                            console.log('📊 Marker analysis:', {
-                                total: allMarkers.length,
-                                new: newMarkers.length,
-                                old: oldMarkers.length
-                            });
-                            newMarkers.forEach((marker, i) => {
-                                console.log(`✅ New marker ${i + 1}:`, {
-                                    class: marker.className,
-                                    contactId: marker.getAttribute('data-contact-id')
-                                });
-                            });
-                            oldMarkers.forEach((marker, i) => {
-                                console.log(`❌ Old marker ${i + 1}:`, {
-                                    class: marker.className,
-                                    onclick: !!marker.onclick
-                                });
-                            });
-                        }}
-                        className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm"
-                    >
-                        Check Markers
-                    </button>
-                    <button
-                        onClick={() => {
-                            console.log('🧪 Testing direct click simulation...');
-                            const newMarkers = document.querySelectorAll('.NEW_MARKER');
-                            if (newMarkers.length > 0) {
-                                console.log('🧪 Simulating click on first marker...');
-                                const firstMarker = newMarkers[0];
-                                console.log('🧪 Marker element:', firstMarker);
-                                console.log('🧪 Contact ID:', firstMarker.getAttribute('data-contact-id'));
-                                
-                                // Simulate click
-                                const clickEvent = new MouseEvent('click', {
-                                    bubbles: true,
-                                    cancelable: true,
-                                    view: window
-                                });
-                                firstMarker.dispatchEvent(clickEvent);
-                                console.log('🧪 Click event dispatched');
-                            } else {
-                                console.log('❌ No NEW_MARKER elements found!');
-                            }
-                        }}
-                        className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm"
-                    >
-                        Test Click
-                    </button>
-                </div>
-            )}
+          
 
             {/* Zoom Level Indicator */}
-            {isLoaded && (
-                <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-3 py-2 rounded-lg text-xs z-40">
-                    <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                            currentZoom < 11 ? 'bg-blue-400' : 
-                            currentZoom < 14 ? 'bg-yellow-400' : 'bg-green-400'
-                        }`}></div>
-                        <span>
-                            {currentZoom < 11 && 'Group Clusters'}
-                            {currentZoom >= 11 && currentZoom < 14 && 'Mixed View'}
-                            {currentZoom >= 14 && 'Individual Markers'}
-                        </span>
-                        <span className="text-gray-300">({currentZoom?.toFixed(1)})</span>
-                    </div>
-                    {clusterState && (
-                        <div className="mt-1 text-xs opacity-75">
-                            Groups: {clusterState.groupMarkersVisible} | Individual: {clusterState.individualMarkersVisible}
-                        </div>
-                    )}
-                </div>
-            )}
+            
 
             {/* Enhanced Smart Group Suggestions */}
             {isLoaded && suggestedGroups.length > 0 && (
