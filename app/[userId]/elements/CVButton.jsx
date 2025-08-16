@@ -113,7 +113,7 @@ export default function CVButton({ cvDocument, userData }) {
             <FaDownload className="text-lg" />
             <div className="flex flex-col items-center">
                 <span className="text-xs opacity-80">
-                    "{cvDocument.fileName}" • {formatFileSize(cvDocument.fileSize)}
+                    &quot;{cvDocument.fileName}&quot; • {formatFileSize(cvDocument.fileSize)}
                 </span>
             </div>
         </div>

@@ -1,9 +1,17 @@
-// app/admin/page.jsx - FIXED VERSION with enhanced debugging
+// app/admin/page.jsx - Main Admin Dashboard
 "use client"
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
-import Image from 'next/image';
+
+// Import components
+import AdminContactTestPanel from './components/AdminContactTestPanel';
+import PlatformUsageOverview from './components/PlatformUsageOverview';
+import UserUsageOverview from './components/UserUsageOverview';
+import UserList from './components/UserList';
+import UserDetails from './components/UserDetails';
+import StatsCards from './components/StatsCards';
+import AccountTypesBreakdown from './components/AccountTypesBreakdown';
 
 export default function AdminDashboard() {
     const { currentUser } = useAuth();
@@ -11,6 +19,15 @@ export default function AdminDashboard() {
     const [selectedUser, setSelectedUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [userDetailLoading, setUserDetailLoading] = useState(false);
+    
+    // Global and user-specific analytics data
+    const [globalAnalytics, setGlobalAnalytics] = useState(null);
+    const [userUsageLogs, setUserUsageLogs] = useState([]);
+    
+    // Test panel state
+    const [showTestPanel, setShowTestPanel] = useState(false);
+    const [testPanelLoading, setTestPanelLoading] = useState(false);
+    
     const [stats, setStats] = useState({
         total: 0,
         withLinks: 0,
@@ -29,61 +46,74 @@ export default function AdminDashboard() {
     });
 
     useEffect(() => {
-        fetchUsers();
-    }, []);
-
-    const fetchUsers = async () => {
-        try {
-            if (!currentUser) {
-                console.error('❌ No current user found');
-                return;
-            }
-
-            console.log('👤 Current user:', currentUser.email);
-            
-            const token = await currentUser.getIdToken();
-            console.log('🔑 Token obtained:', token ? 'Yes' : 'No');
-            
-            const response = await fetch('/api/admin/users', {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-            });
-
-            console.log('📡 Response status:', response.status);
-
-            if (response.ok) {
-                const data = await response.json();
-                console.log('✅ Data received:', data);
-                setUsers(data.users);
-                setStats(data.stats);
-            } else {
-                const errorData = await response.json();
-                console.error('❌ API Error:', response.status, errorData);
+        const fetchAllData = async () => {
+            if (!currentUser) return;
+            setLoading(true);
+            try {
+                const token = await currentUser.getIdToken();
                 
-                if (response.status === 401) {
-                    alert('Authentication failed. Please log out and log back in.');
-                } else if (response.status === 403) {
-                    alert('Access denied. You need admin privileges.');
-                } else {
-                    alert(`Error: ${errorData.error || 'Unknown error'}`);
-                }
-            }
-        } catch (error) {
-            console.error('💥 Fetch error:', error);
-            alert('Failed to load users. Check console for details.');
-        } finally {
-            setLoading(false);
-        }
-    };
+                // Fetch users and analytics in parallel for speed
+                const [usersResponse, analyticsResponse] = await Promise.all([
+                    fetch('/api/admin/users', { 
+                        headers: { 
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                        } 
+                    }),
+                    fetch('/api/admin/analytics', { 
+                        headers: { 
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                        } 
+                    })
+                ]);
 
-    // ✅ FIXED: Enhanced fetchUserDetail function with better debugging
+                if (usersResponse.ok) {
+                    const data = await usersResponse.json();
+                    console.log('✅ Users data received:', data);
+                    setUsers(data.users);
+                    setStats(data.stats);
+                } else {
+                    const errorData = await usersResponse.json();
+                    console.error('❌ Users API Error:', usersResponse.status, errorData);
+                    
+                    if (usersResponse.status === 401) {
+                        alert('Authentication failed. Please log out and log back in.');
+                    } else if (usersResponse.status === 403) {
+                        alert('Access denied. You need admin privileges.');
+                    } else {
+                        alert(`Error: ${errorData.error || 'Unknown error'}`);
+                    }
+                }
+
+                if (analyticsResponse.ok) {
+                    const data = await analyticsResponse.json();
+                    console.log('✅ Analytics data received:', data);
+                    setGlobalAnalytics(data.summary);
+                    const logsByUser = data.recentRuns?.reduce((acc, log) => {
+                        acc[log.userId] = acc[log.userId] || [];
+                        acc[log.userId].push(log);
+                        return acc;
+                    }, {}) || {};
+                    setUserUsageLogs(logsByUser);
+                } else {
+                    console.error('Failed to fetch analytics:', await analyticsResponse.json());
+                    console.error("Failed to load analytics data.");
+                }
+            } catch (error) {
+                console.error('💥 Fetch error:', error);
+                alert('Failed to load data. Check console for details.');
+            } finally {
+                setLoading(false);
+            }
+        };
+        
+        fetchAllData();
+    }, [currentUser]);
+
     const fetchUserDetail = async (userId) => {
         console.log('🎯 === FETCH USER DETAIL START ===');
         console.log('🎯 User ID received:', userId);
-        console.log('🎯 Type of userId:', typeof userId);
-        console.log('🎯 Current user available:', !!currentUser);
         
         if (!userId) {
             console.error('❌ No userId provided to fetchUserDetail');
@@ -100,8 +130,6 @@ export default function AdminDashboard() {
                 throw new Error("Authentication context is not available.");
             }
             
-            console.log('👤 Current user email:', currentUser.email);
-            
             const token = await currentUser.getIdToken();
             console.log('🔑 Token obtained for user detail:', token ? 'Yes' : 'No');
             
@@ -109,7 +137,7 @@ export default function AdminDashboard() {
             console.log('🌐 Making request to:', apiUrl);
             
             const response = await fetch(apiUrl, {
-                method: 'GET', // Explicitly set method
+                method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
@@ -117,21 +145,19 @@ export default function AdminDashboard() {
             });
 
             console.log('📡 User detail response status:', response.status);
-            console.log('📄 Response headers:', Object.fromEntries(response.headers.entries()));
 
             if (response.ok) {
                 const userData = await response.json();
                 console.log('✅ User detail data received:', userData);
                 setSelectedUser(userData);
             } else {
-                const errorText = await response.text(); // Get raw response first
+                const errorText = await response.text();
                 console.error(`❌ Failed to fetch user ${userId}:`, {
                     status: response.status,
                     statusText: response.statusText,
                     rawResponse: errorText
                 });
                 
-                // Try to parse as JSON
                 let errorMessage = errorText;
                 try {
                     const errorData = JSON.parse(errorText);
@@ -155,7 +181,6 @@ export default function AdminDashboard() {
         }
     };
 
-    // ✅ Enhanced click handler with debugging
     const handleUserClick = (user) => {
         console.log('🖱️ === USER CLICK EVENT ===');
         console.log('🖱️ Clicked user object:', user);
@@ -171,28 +196,87 @@ export default function AdminDashboard() {
         fetchUserDetail(user.id);
     };
 
-    // ✅ NEW: Helper function to get traffic source icon
-    const getTrafficSourceIcon = (source) => {
-        const icons = {
-            'instagram': '📸',
-            'tiktok': '🎵',
-            'twitter': '🐦',
-            'facebook': '👤',
-            'linkedin': '💼',
-            'youtube': '📺',
-            'google': '🔍',
-            'direct': '🔗',
-            'email': '📧',
-            'localhost': '🏠'
-        };
-        return icons[source?.toLowerCase()] || '🌐';
+    // Handle test data cleanup
+    const handleCleanupTestData = async (userId) => {
+        if (!userId || !selectedUser) {
+            alert('Please select a user first');
+            return;
+        }
+
+        const confirmCleanup = confirm(`Are you sure you want to delete all test data for ${selectedUser.displayName}? This action cannot be undone.`);
+        if (!confirmCleanup) return;
+
+        setTestPanelLoading(true);
+        try {
+            const token = await currentUser.getIdToken();
+            const response = await fetch('/api/admin/cleanup-test-data', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    userId: userId,
+                    cleanupType: 'contacts'
+                })
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                alert(`✅ Successfully deleted ${result.deletedCount} test contacts for ${selectedUser.displayName}`);
+                // Refresh user details
+                await fetchUserDetail(userId);
+            } else {
+                const errorData = await response.json();
+                alert(`❌ Cleanup failed: ${errorData.error}`);
+            }
+        } catch (error) {
+            console.error('Error cleaning up test data:', error);
+            alert('Failed to cleanup test data');
+        } finally {
+            setTestPanelLoading(false);
+        }
     };
 
-    // ✅ NEW: Helper function to format numbers
-    const formatNumber = (num) => {
-        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-        return num.toString();
+    // Handle test contact generation for selected user
+    const handleTestContactGeneration = async (generationOptions) => {
+        if (!selectedUser) {
+            alert('Please select a user first');
+            return;
+        }
+
+        setTestPanelLoading(true);
+        try {
+            const token = await currentUser.getIdToken();
+            const response = await fetch('/api/admin/generate-contacts', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ...generationOptions,
+                    targetUserId: selectedUser.id
+                })
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                alert(`✅ Successfully generated ${result.data.generated} test contacts for ${selectedUser.displayName}`);
+                // Refresh user details to show updated stats
+                await fetchUserDetail(selectedUser.id);
+                return result;
+            } else {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Generation failed');
+            }
+        } catch (error) {
+            console.error('Error generating test contacts:', error);
+            alert(`❌ Generation failed: ${error.message}`);
+            throw error;
+        } finally {
+            setTestPanelLoading(false);
+        }
     };
 
     if (loading) {
@@ -210,360 +294,85 @@ export default function AdminDashboard() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-gray-900">User Management</h2>
-                <Link 
-                    href="/dashboard" 
-                    className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors"
-                >
-                    Back to Dashboard
-                </Link>
+                <div className="flex items-center gap-3">
+                    {/* Test Panel Toggle */}
+                    <button
+                        onClick={() => setShowTestPanel(!showTestPanel)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors font-medium ${
+                            showTestPanel 
+                                ? 'bg-orange-100 border border-orange-300 text-orange-800 hover:bg-orange-150' 
+                                : 'bg-orange-600 text-white hover:bg-orange-700'
+                        }`}
+                    >
+                        <span>🧪</span>
+                        {showTestPanel ? 'Hide Test Panel' : 'Show Test Panel'}
+                    </button>
+                    <Link 
+                        href="/dashboard" 
+                        className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors"
+                    >
+                        Back to Dashboard
+                    </Link>
+                </div>
             </div>
+
+            {/* Test Panel Section */}
+            {showTestPanel && (
+                <div className="bg-white rounded-lg shadow-lg border-2 border-orange-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                            <span>🧪</span>
+                            Contact Test Panel
+                        </h3>
+                        {selectedUser && (
+                            <div className="text-sm text-gray-600">
+                                Target User: <span className="font-medium text-blue-600">{selectedUser.displayName} (@{selectedUser.username})</span>
+                            </div>
+                        )}
+                    </div>
+                    
+                    {selectedUser ? (
+                        <AdminContactTestPanel 
+                            targetUser={selectedUser}
+                            onGenerate={handleTestContactGeneration}
+                            onCleanup={() => handleCleanupTestData(selectedUser.id)}
+                            loading={testPanelLoading}
+                        />
+                    ) : (
+                        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <span className="text-2xl">👤</span>
+                            </div>
+                            <h4 className="text-lg font-medium text-gray-900 mb-2">Select a User</h4>
+                            <p className="text-gray-600">Choose a user from the list below to generate test contacts for them</p>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Platform Usage Overview */}
+            <PlatformUsageOverview stats={globalAnalytics} />
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
-                    <div className="text-sm text-gray-600">Total Users</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-2xl font-bold text-green-600">{formatNumber(stats.totalViews)}</div>
-                    <div className="text-sm text-gray-600">Total Views</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-2xl font-bold text-purple-600">{formatNumber(stats.totalClicks)}</div>
-                    <div className="text-sm text-gray-600">Total Clicks</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-2xl font-bold text-orange-600">{stats.activeToday}</div>
-                    <div className="text-sm text-gray-600">Active Today</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-2xl font-bold text-indigo-600">{stats.withAnalytics}</div>
-                    <div className="text-sm text-gray-600">With Analytics</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="text-2xl font-bold text-red-600">{stats.sensitiveContent}</div>
-                    <div className="text-sm text-gray-600">Sensitive Content</div>
-                </div>
-            </div>
+            <StatsCards stats={stats} />
 
             {/* Account Types Breakdown */}
-            <div className="bg-white rounded-lg shadow p-6 mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Types</h3>
-                <div className="grid grid-cols-4 gap-4">
-                    <div className="text-center">
-                        <div className="text-xl font-bold text-gray-600">{stats.accountTypes?.base || 0}</div>
-                        <div className="text-sm text-gray-500">Base</div>
-                    </div>
-                    <div className="text-center">
-                        <div className="text-xl font-bold text-blue-600">{stats.accountTypes?.pro || 0}</div>
-                        <div className="text-sm text-gray-500">Pro</div>
-                    </div>
-                    <div className="text-center">
-                        <div className="text-xl font-bold text-purple-600">{stats.accountTypes?.premium || 0}</div>
-                        <div className="text-sm text-gray-500">Premium</div>
-                    </div>
-                    <div className="text-center">
-                        <div className="text-xl font-bold text-gold-600">{stats.accountTypes?.business || 0}</div>
-                        <div className="text-sm text-gray-500">Business</div>
-                    </div>
-                </div>
-            </div>
+            <AccountTypesBreakdown stats={stats} />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Users List */}
-                <div className="bg-white rounded-lg shadow">
-                    <div className="px-6 py-4 border-b border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-900">All Users ({users.length})</h3>
-                        <p className="text-sm text-gray-500">Sorted by engagement (views + clicks)</p>
-                    </div>
-                    <div className="max-h-96 overflow-y-auto">
-                        {users.map((user) => (
-                            <div
-                                key={user.id}
-                                onClick={() => handleUserClick(user)} // ✅ Use enhanced click handler
-                                className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                                    selectedUser?.id === user.id ? 'bg-blue-50 border-blue-200' : ''
-                                }`}
-                            >
-                                <div className="flex items-center space-x-3">
-                                    <div className="flex-shrink-0">
-                                        {user.profilePhoto ? (
-                                            <Image
-                                                src={user.profilePhoto}
-                                                alt={user.displayName}
-                                                width={40}
-                                                height={40}
-                                                className="rounded-full object-cover"
-                                            />
-                                        ) : (
-                                            <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center">
-                                                <span className="text-sm font-semibold text-gray-600">
-                                                    {user.displayName?.charAt(0) || 'U'}
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-sm font-medium text-gray-900 truncate">
-                                                {user.displayName} (@{user.username})
-                                            </p>
-                                            <span className={`text-xs px-2 py-1 rounded-full ${
-                                                user.accountType === 'business' ? 'bg-yellow-100 text-yellow-800' :
-                                                user.accountType === 'premium' ? 'bg-purple-100 text-purple-800' :
-                                                user.accountType === 'pro' ? 'bg-blue-100 text-blue-800' :
-                                                'bg-gray-100 text-gray-800'
-                                            }`}>
-                                                {user.accountType || 'base'}
-                                            </span>
-                                        </div>
-                                        <p className="text-sm text-gray-500 truncate">{user.email}</p>
-                                        
-                                        {/* Analytics summary */}
-                                        <div className="flex items-center space-x-3 mt-1">
-                                            <div className="flex items-center space-x-1">
-                                                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                                                    👁️ {formatNumber(user.analytics?.totalViews || 0)}
-                                                </span>
-                                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                                                    🖱️ {formatNumber(user.analytics?.totalClicks || 0)}
-                                                </span>
-                                            </div>
-                                            {user.analytics?.topTrafficSource && (
-                                                <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded">
-                                                    {getTrafficSourceIcon(user.analytics.topTrafficSource.name)} {user.analytics.topTrafficSource.name}
-                                                </span>
-                                            )}
-                                        </div>
-                                        
-                                        <div className="flex items-center space-x-2 mt-1">
-                                            <span className="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded">
-                                                {user.linksCount} links
-                                            </span>
-                                            <span className="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded">
-                                                {user.selectedTheme}
-                                            </span>
-                                            {user.sensitiveStatus && (
-                                                <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
-                                                    Sensitive
-                                                </span>
-                                            )}
-                                            {(user.analytics?.todayViews > 0 || user.analytics?.todayClicks > 0) && (
-                                                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                                                    🔥 Active
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                <UserList 
+                    users={users}
+                    selectedUser={selectedUser}
+                    onUserClick={handleUserClick}
+                />
 
                 {/* User Details */}
-                <div className="bg-white rounded-lg shadow">
-                    <div className="px-6 py-4 border-b border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-900">User Details</h3>
-                        {selectedUser && (
-                            <p className="text-sm text-gray-500">Selected: {selectedUser.displayName}</p>
-                        )}
-                    </div>
-                    <div className="p-6">
-                        {userDetailLoading ? (
-                            <div className="flex items-center justify-center py-8">
-                                <div className="text-center">
-                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                                    <p className="mt-2 text-sm text-gray-600">Loading user details...</p>
-                                </div>
-                            </div>
-                        ) : selectedUser ? (
-                            <div className="space-y-4">
-                                <div className="flex items-center space-x-4">
-                                    {selectedUser.profilePhoto ? (
-                                        <Image
-                                            src={selectedUser.profilePhoto}
-                                            alt={selectedUser.displayName}
-                                            width={64}
-                                            height={64}
-                                            className="rounded-full object-cover"
-                                        />
-                                    ) : (
-                                        <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center">
-                                            <span className="text-xl font-semibold text-gray-600">
-                                                {selectedUser.displayName?.charAt(0) || 'U'}
-                                            </span>
-                                        </div>
-                                    )}
-                                    <div>
-                                        <h4 className="text-xl font-bold">{selectedUser.displayName}</h4>
-                                        <p className="text-gray-600">@{selectedUser.username}</p>
-                                        <p className="text-sm text-gray-500">{selectedUser.email}</p>
-                                        <div className="flex items-center space-x-2 mt-1">
-                                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                                                selectedUser.accountType === 'business' ? 'bg-yellow-100 text-yellow-800' :
-                                                selectedUser.accountType === 'premium' ? 'bg-purple-100 text-purple-800' :
-                                                selectedUser.accountType === 'pro' ? 'bg-blue-100 text-blue-800' :
-                                                'bg-gray-100 text-gray-800'
-                                            }`}>
-                                                {selectedUser.accountType || 'base'} account
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Analytics Section */}
-                                <div className="bg-gray-50 rounded-lg p-4">
-                                    <h5 className="font-medium text-gray-900 mb-3">📊 Analytics Overview</h5>
-                                    <div className="grid grid-cols-2 gap-4 mb-4">
-                                        <div className="text-center">
-                                            <div className="text-2xl font-bold text-green-600">
-                                                {formatNumber(selectedUser.analytics?.totalViews || 0)}
-                                            </div>
-                                            <div className="text-sm text-gray-600">Total Views</div>
-                                            {selectedUser.analytics?.todayViews > 0 && (
-                                                <div className="text-xs text-green-500">
-                                                    +{selectedUser.analytics.todayViews} today
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="text-center">
-                                            <div className="text-2xl font-bold text-blue-600">
-                                                {formatNumber(selectedUser.analytics?.totalClicks || 0)}
-                                            </div>
-                                            <div className="text-sm text-gray-600">Total Clicks</div>
-                                            {selectedUser.analytics?.todayClicks > 0 && (
-                                                <div className="text-xs text-blue-500">
-                                                    +{selectedUser.analytics.todayClicks} today
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                    
-                                    {selectedUser.analytics?.topTrafficSource && (
-                                        <div className="border-t pt-3">
-                                            <div className="text-sm font-medium text-gray-700 mb-2">Top Traffic Source</div>
-                                            <div className="flex items-center justify-between bg-white rounded p-3">
-                                                <div className="flex items-center space-x-2">
-                                                    <span className="text-lg">
-                                                        {getTrafficSourceIcon(selectedUser.analytics.topTrafficSource.name)}
-                                                    </span>
-                                                    <div>
-                                                        <div className="font-medium capitalize">
-                                                            {selectedUser.analytics.topTrafficSource.name}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {selectedUser.analytics.topTrafficSource.medium}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="text-sm font-semibold">
-                                                        {selectedUser.analytics.topTrafficSource.views + selectedUser.analytics.topTrafficSource.clicks} total
-                                                    </div>
-                                                    <div className="text-xs text-gray-500">
-                                                        {selectedUser.analytics.topTrafficSource.views}v • {selectedUser.analytics.topTrafficSource.clicks}c
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    
-                                    <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t">
-                                        <div className="text-center">
-                                            <div className="text-lg font-bold text-purple-600">
-                                                {selectedUser.analytics?.linkCount || 0}
-                                            </div>
-                                            <div className="text-sm text-gray-600">Links Tracked</div>
-                                        </div>
-                                        <div className="text-center">
-                                            <div className="text-lg font-bold text-orange-600">
-                                                {selectedUser.analytics?.trafficSourceCount || 0}
-                                            </div>
-                                            <div className="text-sm text-gray-600">Traffic Sources</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Bio</label>
-                                        <p className="text-sm text-gray-900">{selectedUser.bio || 'No bio'}</p>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Theme</label>
-                                        <p className="text-sm text-gray-900">{selectedUser.selectedTheme}</p>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Links ({selectedUser.links?.length || 0})</label>
-                                        <div className="space-y-1 max-h-32 overflow-y-auto">
-                                            {selectedUser.links?.length > 0 ? (
-                                                selectedUser.links.map((link, index) => (
-                                                    <div key={index} className="text-sm p-2 bg-gray-50 rounded">
-                                                        <div className="font-medium">{link.title}</div>
-                                                        <div className="text-gray-600 truncate">{link.url}</div>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <p className="text-sm text-gray-500">No links</p>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Social Links</label>
-                                        <p className="text-sm text-gray-900">{selectedUser.socials?.length || 0} social accounts</p>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Created</label>
-                                        <p className="text-sm text-gray-900">
-                                            {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString() : 'Unknown'}
-                                        </p>
-                                    </div>
-
-                                    <div className="flex items-center space-x-4">
-                                        {selectedUser.sensitiveStatus && (
-                                            <span className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded">
-                                                Sensitive Content
-                                            </span>
-                                        )}
-                                        {selectedUser.supportBannerStatus && (
-                                            <span className="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded">
-                                                Support Banner
-                                            </span>
-                                        )}
-                                        {selectedUser.emailVerified && (
-                                            <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded">
-                                                Email Verified
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    <div className="pt-4">
-                                        <a
-                                            href={`/${selectedUser.username}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                                        >
-                                            View Public Profile →
-                                        </a>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="text-center py-8 text-gray-500">
-                                <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                </svg>
-                                Select a user to view details
-                            </div>
-                        )}
-                    </div>
-                </div>
+                <UserDetails 
+                    selectedUser={selectedUser}
+                    userDetailLoading={userDetailLoading}
+                    userUsageLogs={selectedUser ? userUsageLogs[selectedUser.id] || [] : []}
+                />
             </div>
         </div>
     );

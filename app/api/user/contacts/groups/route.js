@@ -1,7 +1,6 @@
-// app/api/user/contacts/groups/route.js - Contact Groups Management API
+// app/api/user/contacts/groups/route.js - Enhanced Contact Groups Management API with Time Frame Support
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
-
 
 // ✅ GET - Fetch all contact groups for user
 export async function GET(request) {
@@ -53,7 +52,7 @@ export async function GET(request) {
     }
 }
 
-// ✅ POST - Create new contact group
+// ✅ POST - Create new contact group (enhanced with time frame support)
 export async function POST(request) {
     try {
         console.log('📝 POST /api/user/contacts/groups - Creating contact group');
@@ -88,6 +87,31 @@ export async function POST(request) {
             }, { status: 400 });
         }
 
+        // Validate time frame data if provided
+        if (group.timeFrame) {
+            const { startDate, endDate } = group.timeFrame;
+            if (!startDate || !endDate) {
+                return NextResponse.json({
+                    error: 'Time frame must include both start and end dates'
+                }, { status: 400 });
+            }
+            
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+                return NextResponse.json({
+                    error: 'Invalid date format in time frame'
+                }, { status: 400 });
+            }
+            
+            if (start >= end) {
+                return NextResponse.json({
+                    error: 'Start date must be before end date'
+                }, { status: 400 });
+            }
+        }
+
         // Create new group object
         const newGroup = {
             id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -99,6 +123,23 @@ export async function POST(request) {
             lastModified: new Date().toISOString(),
             eventData: group.eventData || null
         };
+
+        // Add time frame data if provided
+        if (group.timeFrame) {
+            newGroup.timeFrame = {
+                startDate: group.timeFrame.startDate,
+                endDate: group.timeFrame.endDate,
+                preset: group.timeFrame.preset || 'custom',
+                timezone: group.timeFrame.timezone || 'UTC'
+            };
+            
+            // Add time frame info to description if not already included
+            if (!newGroup.description.includes('from') && !newGroup.description.includes('to')) {
+                const startStr = new Date(group.timeFrame.startDate).toLocaleDateString();
+                const endStr = new Date(group.timeFrame.endDate).toLocaleDateString();
+                newGroup.description += ` (Time-based group from ${startStr} to ${endStr})`;
+            }
+        }
 
         // Get existing groups
         const groupsRef = adminDb.collection('ContactGroups').doc(userId);
@@ -123,14 +164,18 @@ export async function POST(request) {
         await groupsRef.set({
             groups: updatedGroups,
             lastUpdated: new Date().toISOString(),
-            totalGroups: updatedGroups.length
+            totalGroups: updatedGroups.length,
+            // Track time-based groups separately for analytics
+            timeBasedGroups: updatedGroups.filter(g => g.timeFrame).length
         }, { merge: true });
 
         console.log('✅ Contact group created:', {
             userId,
             groupId: newGroup.id,
             groupName: newGroup.name,
-            contactCount: newGroup.contactIds.length
+            contactCount: newGroup.contactIds.length,
+            hasTimeFrame: !!newGroup.timeFrame,
+            timeFramePreset: newGroup.timeFrame?.preset
         });
 
         return NextResponse.json({
@@ -148,7 +193,7 @@ export async function POST(request) {
     }
 }
 
-// ✅ PUT - Update existing contact group
+// ✅ PUT - Update existing contact group (enhanced with time frame support)
 export async function PUT(request) {
     try {
         console.log('✏️ PUT /api/user/contacts/groups - Updating contact group');
@@ -174,6 +219,27 @@ export async function PUT(request) {
             return NextResponse.json({ 
                 error: 'Group ID is required for update' 
             }, { status: 400 });
+        }
+
+        // Validate time frame data if provided
+        if (group.timeFrame) {
+            const { startDate, endDate } = group.timeFrame;
+            if (startDate && endDate) {
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+                
+                if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+                    return NextResponse.json({
+                        error: 'Invalid date format in time frame'
+                    }, { status: 400 });
+                }
+                
+                if (start >= end) {
+                    return NextResponse.json({
+                        error: 'Start date must be before end date'
+                    }, { status: 400 });
+                }
+            }
         }
 
         // Get existing groups
@@ -202,6 +268,20 @@ export async function PUT(request) {
             lastModified: new Date().toISOString()
         };
 
+        // Handle time frame updates
+        if (group.timeFrame !== undefined) {
+            if (group.timeFrame === null) {
+                // Remove time frame
+                delete updatedGroup.timeFrame;
+            } else {
+                // Update time frame
+                updatedGroup.timeFrame = {
+                    ...existingGroups[groupIndex].timeFrame,
+                    ...group.timeFrame
+                };
+            }
+        }
+
         // Replace in array
         const updatedGroups = [...existingGroups];
         updatedGroups[groupIndex] = updatedGroup;
@@ -210,13 +290,15 @@ export async function PUT(request) {
         await groupsRef.set({
             groups: updatedGroups,
             lastUpdated: new Date().toISOString(),
-            totalGroups: updatedGroups.length
+            totalGroups: updatedGroups.length,
+            timeBasedGroups: updatedGroups.filter(g => g.timeFrame).length
         }, { merge: true });
 
         console.log('✅ Contact group updated:', {
             userId,
             groupId: group.id,
-            groupName: updatedGroup.name
+            groupName: updatedGroup.name,
+            hasTimeFrame: !!updatedGroup.timeFrame
         });
 
         return NextResponse.json({
@@ -229,6 +311,79 @@ export async function PUT(request) {
         console.error('❌ Error updating contact group:', error);
         return NextResponse.json({ 
             error: 'Failed to update contact group' 
+        }, { status: 500 });
+    }
+}
+
+// ✅ DELETE - Delete contact group
+export async function DELETE(request) {
+    try {
+        console.log('🗑️ DELETE /api/user/contacts/groups - Deleting contact group');
+
+        // Authenticate user
+        const authHeader = request.headers.get('Authorization');
+        if (!authHeader?.startsWith('Bearer ')) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const token = authHeader.split('Bearer ')[1];
+        const decodedToken = await adminAuth.verifyIdToken(token);
+        const userId = decodedToken.uid;
+
+        const { searchParams } = new URL(request.url);
+        const groupId = searchParams.get('groupId');
+
+        if (!groupId) {
+            return NextResponse.json({ 
+                error: 'Group ID is required' 
+            }, { status: 400 });
+        }
+
+        // Get existing groups
+        const groupsRef = adminDb.collection('ContactGroups').doc(userId);
+        const groupsDoc = await groupsRef.get();
+
+        if (!groupsDoc.exists) {
+            return NextResponse.json({ 
+                error: 'No groups found for user' 
+            }, { status: 404 });
+        }
+
+        const existingGroups = groupsDoc.data().groups || [];
+        const groupToDelete = existingGroups.find(g => g.id === groupId);
+
+        if (!groupToDelete) {
+            return NextResponse.json({ 
+                error: 'Group not found' 
+            }, { status: 404 });
+        }
+
+        // Remove group from array
+        const updatedGroups = existingGroups.filter(g => g.id !== groupId);
+
+        // Save to database
+        await groupsRef.set({
+            groups: updatedGroups,
+            lastUpdated: new Date().toISOString(),
+            totalGroups: updatedGroups.length,
+            timeBasedGroups: updatedGroups.filter(g => g.timeFrame).length
+        }, { merge: true });
+
+        console.log('✅ Contact group deleted:', {
+            userId,
+            groupId,
+            groupName: groupToDelete.name
+        });
+
+        return NextResponse.json({
+            success: true,
+            message: 'Group deleted successfully'
+        });
+
+    } catch (error) {
+        console.error('❌ Error deleting contact group:', error);
+        return NextResponse.json({ 
+            error: 'Failed to delete contact group' 
         }, { status: 500 });
     }
 }

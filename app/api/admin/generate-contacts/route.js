@@ -1,11 +1,11 @@
-// app/api/admin/generate-contacts/route.js - Generate Random Contacts API
+// app/api/admin/generate-contacts/route.js - Generate Random Contacts API (UPDATED)
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
 
 // ✅ Import our contact generator
 import { generateRandomContacts } from '../../../../scripts/generateRandomContacts.js';
 
-// ✅ POST - Generate and insert random contacts
+// ✅ POST - Generate and insert random contacts (UPDATED with test data marking)
 export async function POST(request) {
     try {
         console.log('🎲 POST /api/admin/generate-contacts - Generating random contacts');
@@ -44,12 +44,23 @@ export async function POST(request) {
         });
 
         // Generate random contacts
-        const contacts = generateRandomContacts(count, {
+        const rawContacts = generateRandomContacts(count, {
             eventPercentage,
             locationPercentage,
             forceEventLocation,
             forceRandomLocation
         });
+
+        // ✅ NEW: Mark all generated contacts as test data
+        const contacts = rawContacts.map(contact => ({
+            ...contact,
+            testData: true, // Mark as test data for easy identification
+            source: contact.source || 'admin_test', // Ensure source is marked
+            generatedBy: 'admin_panel', // Track generation source
+            generatedAt: new Date().toISOString(), // Track when generated
+            generatedByAdmin: userId, // Track which admin generated it
+            generatedForUser: finalUserId // Track which user it was generated for
+        }));
 
         // Get existing contacts
         const contactsRef = adminDb.collection('Contacts').doc(finalUserId);
@@ -74,8 +85,17 @@ export async function POST(request) {
             sources: {
                 exchange_form: allContacts.filter(c => c.source === 'exchange_form').length,
                 business_card_scan: allContacts.filter(c => c.source === 'business_card_scan').length,
-                manual: allContacts.filter(c => c.source === 'manual' || !c.source).length,
-                import: allContacts.filter(c => c.source === 'import' || c.source === 'import_csv').length
+                manual: allContacts.filter(c => c.source === 'manual' || (!c.source && !c.testData)).length,
+                import: allContacts.filter(c => c.source === 'import' || c.source === 'import_csv').length,
+                admin_test: allContacts.filter(c => c.source === 'admin_test' || c.testData === true).length
+            },
+            // ✅ NEW: Test data statistics
+            testDataStats: {
+                totalTestContacts: allContacts.filter(c => c.testData === true).length,
+                testContactsWithLocation: allContacts.filter(c => c.testData === true && c.location && c.location.latitude).length,
+                testContactsFromEvents: allContacts.filter(c => c.testData === true && c.eventInfo).length,
+                lastTestGeneration: new Date().toISOString(),
+                generatedByAdmins: [...new Set(allContacts.filter(c => c.generatedByAdmin).map(c => c.generatedByAdmin))].length
             }
         };
 
@@ -96,7 +116,15 @@ export async function POST(request) {
             sourceDistribution: {
                 business_card_scan: contacts.filter(c => c.source === 'business_card_scan').length,
                 exchange_form: contacts.filter(c => c.source === 'exchange_form').length,
-                manual: contacts.filter(c => c.source === 'manual').length
+                manual: contacts.filter(c => c.source === 'manual').length,
+                admin_test: contacts.filter(c => c.source === 'admin_test').length
+            },
+            // ✅ NEW: Test data specific insights
+            testDataInsights: {
+                allMarkedAsTestData: contacts.every(c => c.testData === true),
+                generationTimestamp: new Date().toISOString(),
+                generatedByAdmin: userId,
+                targetUser: finalUserId
             }
         };
 
@@ -105,12 +133,13 @@ export async function POST(request) {
             generated: contacts.length,
             total: allContacts.length,
             withEvents: insights.contactsFromEvents,
-            withLocation: insights.contactsWithLocation
+            withLocation: insights.contactsWithLocation,
+            testDataMarked: contacts.filter(c => c.testData === true).length
         });
 
         return NextResponse.json({
             success: true,
-            message: `Successfully generated ${contacts.length} random contacts`,
+            message: `Successfully generated ${contacts.length} random test contacts`,
             data: {
                 generated: contacts.length,
                 totalContacts: allContacts.length,
@@ -121,7 +150,9 @@ export async function POST(request) {
                     company: contact.company,
                     source: contact.source,
                     hasLocation: !!contact.location,
-                    eventInfo: contact.eventInfo?.eventName || null
+                    eventInfo: contact.eventInfo?.eventName || null,
+                    testData: contact.testData,
+                    generatedBy: contact.generatedBy
                 }))
             }
         });
@@ -135,7 +166,7 @@ export async function POST(request) {
     }
 }
 
-// ✅ GET - Get generation options and statistics
+// ✅ GET - Get generation options and statistics (UPDATED with test data info)
 export async function GET(request) {
     try {
         console.log('📊 GET /api/admin/generate-contacts - Getting generation info');
@@ -144,6 +175,8 @@ export async function GET(request) {
         const userId = url.searchParams.get('userId');
 
         let currentStats = null;
+        let testDataInfo = null;
+        
         if (userId) {
             // Get current contact statistics
             const contactsRef = adminDb.collection('Contacts').doc(userId);
@@ -153,6 +186,7 @@ export async function GET(request) {
                 const data = contactsDoc.data();
                 const contacts = data.contacts || [];
                 
+                // Regular stats
                 currentStats = {
                     totalContacts: contacts.length,
                     withLocation: contacts.filter(c => c.location && c.location.latitude).length,
@@ -165,9 +199,31 @@ export async function GET(request) {
                     bySource: {
                         business_card_scan: contacts.filter(c => c.source === 'business_card_scan').length,
                         exchange_form: contacts.filter(c => c.source === 'exchange_form').length,
-                        manual: contacts.filter(c => c.source === 'manual' || !c.source).length
+                        manual: contacts.filter(c => c.source === 'manual' || (!c.source && !c.testData)).length,
+                        admin_test: contacts.filter(c => c.source === 'admin_test' || c.testData === true).length
                     }
                 };
+
+                // ✅ NEW: Test data specific info
+                const testContacts = contacts.filter(c => c.testData === true);
+                testDataInfo = {
+                    totalTestContacts: testContacts.length,
+                    testContactsWithLocation: testContacts.filter(c => c.location && c.location.latitude).length,
+                    testContactsFromEvents: testContacts.filter(c => c.eventInfo).length,
+                    testContactsByStatus: {
+                        new: testContacts.filter(c => c.status === 'new').length,
+                        viewed: testContacts.filter(c => c.status === 'viewed').length,
+                        archived: testContacts.filter(c => c.status === 'archived').length
+                    },
+                    lastTestGeneration: testContacts.length > 0 ? 
+                        Math.max(...testContacts.map(c => new Date(c.generatedAt || c.submittedAt || 0).getTime())) : null,
+                    generatedByAdmins: [...new Set(testContacts.filter(c => c.generatedByAdmin).map(c => c.generatedByAdmin))],
+                    canCleanup: testContacts.length > 0
+                };
+
+                if (testDataInfo.lastTestGeneration) {
+                    testDataInfo.lastTestGeneration = new Date(testDataInfo.lastTestGeneration).toISOString();
+                }
             }
         }
 
@@ -189,13 +245,21 @@ export async function GET(request) {
         return NextResponse.json({
             success: true,
             currentStats: currentStats,
+            testDataInfo: testDataInfo, // ✅ NEW: Include test data information
             generationOptions: {
                 defaultCount: 50,
                 maxCount: 200,
                 defaultEventPercentage: 0.4,
                 defaultLocationPercentage: 0.7,
                 availableEvents: availableEvents.length,
-                availableCompanies: sampleCompanies.length
+                availableCompanies: sampleCompanies.length,
+                // ✅ NEW: Test data options
+                testDataFeatures: {
+                    autoMarkAsTestData: true,
+                    trackGenerationSource: true,
+                    enableCleanup: true,
+                    supportsBulkDelete: true
+                }
             },
             examples: {
                 testAutoGrouping: {
@@ -220,6 +284,15 @@ export async function GET(request) {
                         count: 60,
                         eventPercentage: 0.2,
                         locationPercentage: 0.9
+                    }
+                },
+                // ✅ NEW: Test data specific examples
+                cleanupTest: {
+                    description: "Small batch for testing cleanup functionality",
+                    params: {
+                        count: 10,
+                        eventPercentage: 0.5,
+                        locationPercentage: 0.5
                     }
                 }
             },

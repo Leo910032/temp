@@ -2,7 +2,9 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
 import { rateLimit } from '@/lib/rateLimiter';
-
+// Ajoutez ces imports après les imports existants
+import { checkContactSubscription } from '@/lib/middleware/subscriptionMiddleware';
+import { CONTACT_FEATURES } from '@/lib/services/contactSubscriptionService';
 // --- Validation Functions ---
 function validateContactData(contact) {
     if (!contact || typeof contact !== 'object') {
@@ -116,15 +118,19 @@ export async function GET(request) {
     try {
         console.log('📥 GET /api/user/contacts - Fetching user contacts');
 
-        // --- 1. Authentication ---
-        const authHeader = request.headers.get('authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Unauthorized: Missing token' }, { status: 401 });
-        }
-        
-        const token = authHeader.split('Bearer ')[1];
-        const decodedToken = await adminAuth.verifyIdToken(token);
-        const { uid } = decodedToken;
+      const subscriptionCheck = await checkContactSubscription(request, CONTACT_FEATURES.BASIC_CONTACTS);
+
+if (!subscriptionCheck.success) {
+    return NextResponse.json({
+        error: subscriptionCheck.error,
+        subscriptionRequired: subscriptionCheck.subscriptionRequired || false,
+        currentPlan: subscriptionCheck.currentPlan,
+        requiredPlan: subscriptionCheck.requiredPlan,
+        upgradeMessage: subscriptionCheck.upgradeMessage
+    }, { status: subscriptionCheck.status });
+}
+
+const { userId: uid, subscriptionLevel } = subscriptionCheck;
 
         // --- 2. Rate Limiting ---
         if (!rateLimit(uid, 50, 60000)) { // 50 requests per minute for reads
@@ -202,7 +208,12 @@ export async function GET(request) {
                 limit,
                 offset,
                 hasMore: offset + limit < totalCount
-            }
+            },
+             // AJOUTER CETTE LIGNE :
+    subscriptionInfo: {
+        level: subscriptionLevel,
+        hasAccess: true
+    }
         });
 
     } catch (error) {
@@ -221,23 +232,31 @@ export async function POST(request) {
     try {
         console.log('📤 POST /api/user/contacts - Creating/updating contacts');
 
-        // --- 1. CSRF Protection ---
+        // --- 1. Subscription Check and Auth ---
+        // MODIFICATION: Check subscription first, as it also handles authentication.
+        const subscriptionCheck = await checkContactSubscription(request, CONTACT_FEATURES.BASIC_CONTACTS);
+
+        if (!subscriptionCheck.success) {
+            return NextResponse.json({
+                error: subscriptionCheck.error,
+                subscriptionRequired: subscriptionCheck.subscriptionRequired || false,
+                currentPlan: subscriptionCheck.currentPlan,
+                requiredPlan: subscriptionCheck.requiredPlan,
+                upgradeMessage: subscriptionCheck.upgradeMessage
+            }, { status: subscriptionCheck.status });
+        }
+
+        // MODIFICATION: Get uid and subscriptionLevel from the successful check.
+        const { userId: uid, subscriptionLevel } = subscriptionCheck;
+
+
+        // --- 2. CSRF Protection ---
         const origin = request.headers.get('origin');
         const allowedOrigins = [process.env.NEXT_PUBLIC_BASE_URL, 'http://localhost:3000'];
         if (!allowedOrigins.includes(origin)) {
             console.warn(`🚨 CSRF Warning: Request from invalid origin: ${origin}`);
             return NextResponse.json({ error: 'Invalid origin' }, { status: 403 });
         }
-
-        // --- 2. Authentication ---
-        const authHeader = request.headers.get('authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Unauthorized: Missing token' }, { status: 401 });
-        }
-        
-        const token = authHeader.split('Bearer ')[1];
-        const decodedToken = await adminAuth.verifyIdToken(token);
-        const { uid } = decodedToken;
 
         // --- 3. Rate Limiting ---
         if (!rateLimit(uid, 30, 60000)) { // 30 updates per minute
@@ -250,21 +269,22 @@ export async function POST(request) {
 
         let result;
 
+        // MODIFICATION: Pass `subscriptionLevel` to each helper function.
         switch (action) {
             case 'create':
-                result = await createContact(uid, contact);
+                result = await createContact(uid, contact, subscriptionLevel);
                 break;
             case 'update':
-                result = await updateContact(uid, contact);
+                result = await updateContact(uid, contact, subscriptionLevel);
                 break;
             case 'delete':
-                result = await deleteContact(uid, contact.id);
+                result = await deleteContact(uid, contact.id, subscriptionLevel);
                 break;
             case 'bulkUpdate':
-                result = await bulkUpdateContacts(uid, contacts);
+                result = await bulkUpdateContacts(uid, contacts, subscriptionLevel);
                 break;
             case 'updateStatus':
-                result = await updateContactStatus(uid, contact.id, contact.status);
+                result = await updateContactStatus(uid, contact.id, contact.status, subscriptionLevel);
                 break;
             default:
                 return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
@@ -283,12 +303,13 @@ export async function POST(request) {
             return NextResponse.json({ error: 'Token expired' }, { status: 401 });
         }
         
-        return NextResponse.json({ error: 'An internal server error occurred.' }, { status: 500 });
+        return NextResponse.json({ error: 'An internal server error occurred.' }, { status: 500 }, );
     }
 }
 
 // --- Helper Functions ---
-async function createContact(uid, contactData) {
+// MODIFICATION: Add `subscriptionLevel` as a parameter.
+async function createContact(uid, contactData, subscriptionLevel) {
     const validatedContact = validateContactData(contactData);
     
     const contactsRef = adminDb.collection('Contacts').doc(uid);
@@ -315,14 +336,20 @@ async function createContact(uid, contactData) {
     
     console.log('✅ Contact created successfully:', validatedContact.id);
     
+    // MODIFICATION: Add `subscriptionInfo` to the return object.
     return {
         success: true,
         message: 'Contact created successfully',
-        contact: validatedContact
+        contact: validatedContact,
+        subscriptionInfo: {
+            level: subscriptionLevel,
+            hasAccess: true
+        }
     };
 }
 
-async function updateContact(uid, contactData) {
+// MODIFICATION: Add `subscriptionLevel` as a parameter.
+async function updateContact(uid, contactData, subscriptionLevel) {
     const validatedContact = validateContactData(contactData);
     
     const contactsRef = adminDb.collection('Contacts').doc(uid);
@@ -354,14 +381,20 @@ async function updateContact(uid, contactData) {
     
     console.log('✅ Contact updated successfully:', validatedContact.id);
     
+    // MODIFICATION: Add `subscriptionInfo` to the return object.
     return {
         success: true,
         message: 'Contact updated successfully',
-        contact: validatedContact
+        contact: validatedContact,
+        subscriptionInfo: {
+            level: subscriptionLevel,
+            hasAccess: true
+        }
     };
 }
 
-async function deleteContact(uid, contactId) {
+// MODIFICATION: Add `subscriptionLevel` as a parameter.
+async function deleteContact(uid, contactId, subscriptionLevel) {
     const contactsRef = adminDb.collection('Contacts').doc(uid);
     const contactsDoc = await contactsRef.get();
     
@@ -392,13 +425,19 @@ async function deleteContact(uid, contactId) {
     
     console.log('✅ Contact deleted successfully:', contactId);
     
+    // MODIFICATION: Add `subscriptionInfo` to the return object.
     return {
         success: true,
-        message: 'Contact deleted successfully'
+        message: 'Contact deleted successfully',
+        subscriptionInfo: {
+            level: subscriptionLevel,
+            hasAccess: true
+        }
     };
 }
 
-async function updateContactStatus(uid, contactId, newStatus) {
+// MODIFICATION: Add `subscriptionLevel` as a parameter.
+async function updateContactStatus(uid, contactId, newStatus, subscriptionLevel) {
     const contactsRef = adminDb.collection('Contacts').doc(uid);
     const contactsDoc = await contactsRef.get();
     
@@ -423,13 +462,18 @@ async function updateContactStatus(uid, contactId, newStatus) {
     
     console.log('✅ Contact status updated successfully:', contactId, newStatus);
     
+    // MODIFICATION: Add `subscriptionInfo` to the return object.
     return {
         success: true,
-        message: 'Contact status updated successfully'
+        message: 'Contact status updated successfully',
+        subscriptionInfo: {
+            level: subscriptionLevel,
+            hasAccess: true
+        }
     };
 }
-
-async function bulkUpdateContacts(uid, contactsData) {
+// MODIFICATION: Add `subscriptionLevel` as a parameter.
+async function bulkUpdateContacts(uid, contactsData, subscriptionLevel) {
     const validatedContacts = validateContactsArray(contactsData);
     
     const contactsRef = adminDb.collection('Contacts').doc(uid);
@@ -442,9 +486,14 @@ async function bulkUpdateContacts(uid, contactsData) {
     
     console.log('✅ Bulk contacts update successful:', validatedContacts.length, 'contacts');
     
+    // MODIFICATION: Add `subscriptionInfo` to the return object.
     return {
         success: true,
         message: 'Contacts updated successfully',
-        count: validatedContacts.length
+        count: validatedContacts.length,
+        subscriptionInfo: {
+            level: subscriptionLevel,
+            hasAccess: true
+        }
     };
 }

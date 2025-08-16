@@ -1,4 +1,4 @@
-// app/dashboard/(dashboard pages)/contacts/page.jsx - FIXED VERSION
+// app/dashboard/(dashboard pages)/contacts/page.jsx - FINAL COMPLETE VERSION
 "use client"
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from "@/lib/translation/useTranslation";
@@ -7,425 +7,204 @@ import dynamic from 'next/dynamic';
 import BusinessCardScanner from './components/BusinessCardScanner';
 import ContactReviewModal from './components/ContactReviewModal';
 import { ShareContactsModal } from './components/ShareContactsModal';
-import ContactTestPanel from './components/ContactTestPanel';
-
-// Import the enhanced server-side service
+import GroupManagerModal from './components/GroupManagerModal';
+import { useAuth } from "@/contexts/AuthContext";
 import {
-    getContacts,
-    createContact,
-    updateContact,
-    deleteContact,
-    updateContactStatus,
-    scanBusinessCard,
-    createContactFromScan,
-    checkContactSharingEnabled,
-    getTeamMembersForSharing,
-    shareContactsWithTeam,
-    getContactStats,
-    // Enhanced group management functions
-    getContactGroups,
-    createContactGroup,
-    updateContactGroup,
-    deleteContactGroup,
-    // Legacy auto-groups function (we'll enhance this)
+    getContacts, createContact, updateContact, deleteContact, updateContactStatus,
+    scanBusinessCard, createContactFromScan, checkContactSharingEnabled,
+    getTeamMembersForSharing, shareContactsWithTeam, getContactStats,
+    getContactGroups, createContactGroup, updateContactGroup, deleteContactGroup,
     generateAutoGroups
 } from '@/lib/services/contactsService';
+import {
+    getContactSubscriptionStatus, CONTACT_FEATURES, getContactUpgradeMessage
+} from '@/lib/services/contactSubscriptionService';
 
-// Create a loading component for the map
-function MapLoadingComponent() {
+// --- MAIN COMPONENT ---
+export default function SubscriptionAwareContactsPage() {
     const { t } = useTranslation();
-    
-    return (
-        <div className="h-[300px] w-full rounded-lg border border-gray-200 bg-gray-100 flex items-center justify-center">
-            <div className="flex flex-col items-center space-y-2">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
-                <span className="text-gray-500 text-xs">{t('contacts.loading_map')}</span>
-            </div>
-        </div>
-    );
-}
+    const { currentUser } = useAuth();
 
-export default function EnhancedContactsPage() {
-    const { t } = useTranslation();
+    // --- STATE HOOKS (All at the top) ---
+    const [subscriptionStatus, setSubscriptionStatus] = useState(null);
+    const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+    const [subscriptionError, setSubscriptionError] = useState(null);
+
     const [contacts, setContacts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedContacts, setSelectedContacts] = useState([]);
 
-    // Business Card Scanner States
     const [showScanner, setShowScanner] = useState(false);
     const [showReviewModal, setShowReviewModal] = useState(false);
     const [scannedFields, setScannedFields] = useState(null);
-
-    // Team sharing states
     const [showShareModal, setShowShareModal] = useState(false);
     const [teamSharingEnabled, setTeamSharingEnabled] = useState(false);
     const [selectionMode, setSelectionMode] = useState(false);
-    
-    // Map and edit states
+
     const [showMap, setShowMap] = useState(false);
     const [selectedContactForMap, setSelectedContactForMap] = useState(null);
     const [editingContact, setEditingContact] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
-    
-    // Group management states
+
     const [groups, setGroups] = useState([]);
     const [selectedGroupIds, setSelectedGroupIds] = useState([]);
     const [showGroupManager, setShowGroupManager] = useState(false);
     const [groupsLoading, setGroupsLoading] = useState(false);
     const [autoGroupsEnabled, setAutoGroupsEnabled] = useState(true);
 
-    // Test panel state
-    const [showTestPanel, setShowTestPanel] = useState(false);
-    
-    // Stats and pagination
-    const [contactStats, setContactStats] = useState({
-        total: 0,
-        byStatus: { new: 0, viewed: 0, archived: 0 },
-        locationStats: { total: 0, withLocation: 0, withoutLocation: 0 },
-        groupStats: { total: 0, autoGroups: 0, customGroups: 0 }
-    });
-    const [pagination, setPagination] = useState({
-        limit: 100,
-        offset: 0,
-        hasMore: false
-    });
 
-    // Enhanced filter contacts based on status, search term, and groups
-    const filteredContacts = contacts.filter(contact => {
-        const matchesFilter = filter === 'all' || contact.status === filter;
-        const matchesSearch = !searchTerm || 
-            contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            contact.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (contact.company && contact.company.toLowerCase().includes(searchTerm.toLowerCase()));
-        
-        // Group filtering
-        let matchesGroup = true;
-        if (selectedGroupIds.length > 0) {
-            matchesGroup = selectedGroupIds.some(groupId => {
-                const group = groups.find(g => g.id === groupId);
-                return group && group.contactIds.includes(contact.id);
-            });
-        }
-        
-        return matchesFilter && matchesSearch && matchesGroup;
-    });
+   // FIX 1: Provide a more complete and safe initial state for stats.
+    const [contactStats, setContactStats] = useState({ 
+        total: 0, 
+        byStatus: { new: 0, viewed: 0, archived: 0 }, 
+        locationStats: { total: 0, withLocation: 0, withoutLocation: 0 }, 
+        groupStats: { total: 0, autoGroups: 0, customGroups: 0 } 
+    });    const [pagination, setPagination] = useState({ limit: 100, offset: 0, hasMore: false });
 
-    // Load contact groups
-    const loadGroups = async () => {
+    // --- DATA LOADING & ACTIONS (wrapped in useCallback for stability) ---
+    const loadGroups = useCallback(async () => {
+        if (!subscriptionStatus?.features.includes(CONTACT_FEATURES.BASIC_GROUPS)) return;
+        setGroupsLoading(true);
         try {
-            setGroupsLoading(true);
-            console.log('🔄 Loading contact groups...');
-            
             const result = await getContactGroups();
             setGroups(result.groups || []);
-            
-            // Update group stats
-            setContactStats(prev => ({
-                ...prev,
-                groupStats: {
-                    total: result.groups?.length || 0,
-                    autoGroups: result.groups?.filter(g => g.type === 'auto' || g.type === 'company').length || 0,
-                    customGroups: result.groups?.filter(g => g.type === 'custom').length || 0
-                }
-            }));
-
-            console.log('✅ Groups loaded:', result.groups?.length || 0);
         } catch (error) {
-            console.error('❌ Error loading groups:', error);
             toast.error(t('contacts.failed_to_load_groups') || 'Failed to load groups');
         } finally {
             setGroupsLoading(false);
         }
-    };
+    }, [t, subscriptionStatus]);
 
-    // Generate automatic groups
-    const generateAutomaticGroups = async () => {
+    const loadContacts = useCallback(async (options = {}) => {
+        setLoading(true);
         try {
-            setGroupsLoading(true);
-            toast.loading('Generating automatic groups...', { id: 'auto-groups' });
-            
-            const result = await generateAutoGroups();
-            
-            toast.dismiss('auto-groups');
-            
-            if (result.success) {
-                toast.success(`Generated ${result.groupsCreated} automatic groups!`);
-                await loadGroups(); // Reload groups
-            } else {
-                toast.error(result.error || 'Failed to generate groups');
-            }
-        } catch (error) {
-            toast.dismiss('auto-groups');
-            console.error('Error generating auto groups:', error);
-            toast.error('Failed to generate automatic groups');
-        } finally {
-            setGroupsLoading(false);
-        }
-    };
-
-    // Handle group creation from map
-    const handleGroupCreation = async (groupData) => {
-        try {
-            console.log('📝 Creating new group:', groupData);
-            
-            const result = await createContactGroup(groupData);
-            
-            if (result.success) {
-                toast.success(`Group "${groupData.name}" created successfully!`);
-                await loadGroups(); // Reload groups
-                return result.groupId;
-            } else {
-                throw new Error(result.error || 'Failed to create group');
-            }
-        } catch (error) {
-            console.error('Error creating group:', error);
-            toast.error(error.message || 'Failed to create group');
-            throw error;
-        }
-    };
-
-    // Handle group toggle (show/hide on map)
-    const handleGroupToggle = (groupId) => {
-        setSelectedGroupIds(prev => {
-            if (prev.includes(groupId)) {
-                return prev.filter(id => id !== groupId);
-            } else {
-                return [...prev, groupId];
-            }
-        });
-    };
-
-    // Delete group
-    const handleDeleteGroup = async (groupId) => {
-        const group = groups.find(g => g.id === groupId);
-        if (!group) return;
-
-        if (!confirm(`Are you sure you want to delete the group "${group.name}"? This action cannot be undone.`)) {
-            return;
-        }
-
-        try {
-            await deleteContactGroup(groupId);
-            toast.success('Group deleted successfully');
-            await loadGroups(); // Reload groups
-            
-            // Remove from selected groups if it was selected
-            setSelectedGroupIds(prev => prev.filter(id => id !== groupId));
-        } catch (error) {
-            console.error('Error deleting group:', error);
-            toast.error('Failed to delete group');
-        }
-    };
-
-    // Load contacts from server
-    const loadContacts = async (options = {}) => {
-        try {
-            setLoading(true);
-            console.log('🔄 Loading contacts from server...');
-            
             const filters = {
                 status: filter !== 'all' ? filter : undefined,
                 search: searchTerm || undefined,
                 limit: pagination.limit,
                 offset: options.append ? pagination.offset : 0
             };
-
             const result = await getContacts(filters);
-            
-            if (options.append) {
-                setContacts(prev => [...prev, ...result.contacts]);
-            } else {
-                setContacts(result.contacts);
-            }
-            
+            setContacts(prev => options.append ? [...prev, ...result.contacts] : result.contacts);
             setPagination(prev => ({
                 ...prev,
                 offset: options.append ? prev.offset + result.count : result.count,
                 hasMore: result.pagination?.hasMore || false
             }));
-
-            // Update stats
-            setContactStats(prev => ({
-                ...prev,
-                total: result.totalCount,
-                byStatus: {
-                    new: result.contacts.filter(c => c.status === 'new').length,
-                    viewed: result.contacts.filter(c => c.status === 'viewed').length,
-                    archived: result.contacts.filter(c => c.status === 'archived').length
-                },
-                locationStats: result.locationStats
-            }));
-
-            console.log('✅ Contacts loaded:', {
-                count: result.count,
-                total: result.totalCount,
-                withLocation: result.locationStats.withLocation
-            });
-
+            setContactStats(await getContactStats());
         } catch (error) {
-            console.error('❌ Error loading contacts:', error);
-            toast.error(t('contacts.failed_to_load') || 'Failed to load contacts');
+            if (error.type === 'subscription') {
+                toast.error(error.upgradeMessage || 'Access denied by subscription.');
+                setSubscriptionError(error.message);
+            } else {
+                toast.error(t('contacts.failed_to_load') || 'Failed to load contacts');
+            }
         } finally {
             setLoading(false);
         }
-    };
+    }, [filter, searchTerm, pagination.limit, pagination.offset, t]);
 
-    // Check team sharing permissions
-    const checkSharingPermissions = async () => {
-        try {
-            const enabled = await checkContactSharingEnabled();
-            setTeamSharingEnabled(enabled);
-        } catch (error) {
-            console.error('Error checking sharing permissions:', error);
-            setTeamSharingEnabled(false);
-        }
-    };
+    // --- SIDE EFFECTS (useEffect hooks, all at the top) ---
 
-    // Handle test contacts generation
-    const handleContactsGenerated = async (result) => {
-        // Refresh contacts and groups after generation
-        await Promise.all([
-            loadContacts(),
-            loadGroups()
-        ]);
-        
-        // Trigger auto-grouping if enabled
-        if (autoGroupsEnabled && result.data.generated > 10) {
-            setTimeout(() => {
-                generateAutomaticGroups();
-            }, 2000);
-        }
-        
-        toast.success(
-            `✅ Generated ${result.data.generated} test contacts!\n` +
-            `📊 ${result.data.insights.contactsFromEvents} from events, ` +
-            `📍 ${result.data.insights.contactsWithLocation} with location`,
-            { duration: 5000 }
-        );
-    };
-
-    // Enhanced initialization with groups
     useEffect(() => {
-        const initializeData = async () => {
-            await Promise.all([
-                loadContacts(),
-                loadGroups(),
-                checkSharingPermissions()
-            ]);
-        };
-        
-        initializeData();
-    }, []);
-
-    // Reload when filter or search changes
-    useEffect(() => {
-        const timeoutId = setTimeout(() => {
-            loadContacts();
-        }, 300); // Debounce search
-
-        return () => clearTimeout(timeoutId);
-    }, [filter, searchTerm]);
-
-    // Save scanned contact to server
-    const saveScannedContact = async (fields) => {
-        try {
-            console.log('💾 Saving scanned contact to server...');
-            
-            const result = await createContactFromScan(fields);
-            
-            toast.success(t('contacts.contact_created') || 'Contact created successfully!');
-            
-            // Reload contacts to show the new one
-            await loadContacts();
-            
-            // Check for auto-grouping opportunities
-            if (autoGroupsEnabled) {
-                setTimeout(() => {
-                    generateAutomaticGroups();
-                }, 1000);
+        if (!currentUser) return;
+        const checkSubscription = async () => {
+            setSubscriptionLoading(true);
+            try {
+                const status = await getContactSubscriptionStatus();
+                setSubscriptionStatus(status);
+            } catch (err) {
+                setSubscriptionError("Failed to load subscription information.");
+            } finally {
+                setSubscriptionLoading(false);
             }
-            
-            setShowReviewModal(false);
-            setScannedFields(null);
-            
+        };
+        checkSubscription();
+    }, [currentUser]);
+
+    useEffect(() => {
+        if (!subscriptionStatus?.canAccessContacts) return;
+        const handler = setTimeout(() => {
+            Promise.all([
+                loadContacts({ append: false }),
+                loadGroups()
+            ]);
+        }, 300);
+        return () => clearTimeout(handler);
+    }, [subscriptionStatus, filter, searchTerm, loadContacts, loadGroups]);
+
+    // --- HANDLER FUNCTIONS ---
+    
+    const generateAutomaticGroups = async () => {
+        if (!subscriptionStatus?.features.includes(CONTACT_FEATURES.BASIC_GROUPS)) {
+            toast.error('Group creation requires a higher subscription.');
+            return;
+        }
+        try {
+            setGroupsLoading(true);
+            toast.loading('Generating automatic groups...', { id: 'auto-groups' });
+            const result = await generateAutoGroups({
+                groupByCompany: subscriptionStatus.features.includes(CONTACT_FEATURES.BASIC_GROUPS),
+                groupByLocation: subscriptionStatus.features.includes(CONTACT_FEATURES.ADVANCED_GROUPS),
+                groupByEvents: subscriptionStatus.features.includes(CONTACT_FEATURES.EVENT_DETECTION),
+            });
+            toast.dismiss('auto-groups');
+            if (result.success) {
+                toast.success(`Generated ${result.groupsCreated} automatic groups!`);
+                await loadGroups();
+            } else {
+                toast.error(result.error || 'Failed to generate groups');
+            }
         } catch (error) {
-            console.error('Error saving scanned contact:', error);
-            toast.error(t('contacts.failed_to_save') || 'Failed to save contact');
+            toast.dismiss('auto-groups');
+            toast.error('Failed to generate automatic groups');
+        } finally {
+            setGroupsLoading(false);
+        }
+    };
+
+    const handleGroupCreation = async (groupData) => {
+        try {
+            const result = await createContactGroup(groupData);
+            if (result.success) {
+                toast.success(`Group "${groupData.name}" created!`);
+                await loadGroups();
+                return result.groupId;
+            } else {
+                throw new Error(result.error || 'Failed to create group');
+            }
+        } catch (error) {
+            toast.error(error.message || 'Failed to create group');
             throw error;
         }
     };
 
-    const handleBusinessCardScan = async (imageBase64) => {
+    const handleDeleteGroup = async (groupId) => {
+        const group = groups.find(g => g.id === groupId);
+        if (!group) return;
+        if (!confirm(`Are you sure you want to delete the group "${group.name}"?`)) return;
         try {
-            console.log('📷 Processing business card...');
-            toast.loading(t('business_card_scanner.scanning_card') || 'Scanning business card...', { id: 'scanning-toast' });
-            
-            const result = await scanBusinessCard(imageBase64);
-            
-            toast.dismiss('scanning-toast');
-            
-            if (result.success) {
-                setScannedFields(result.parsedFields);
-                setShowReviewModal(true);
-                setShowScanner(false);
-                toast.success(t('business_card_scanner.scan_complete') || 'Scan complete!');
-            } else {
-                toast.error(result.error || t('business_card_scanner.scan_failed') || 'Scan failed');
-            }
+            await deleteContactGroup(groupId);
+            toast.success('Group deleted');
+            await loadGroups();
+            setSelectedGroupIds(prev => prev.filter(id => id !== groupId));
         } catch (error) {
-            toast.dismiss('scanning-toast');
-            console.error('Business card scan error:', error);
-            toast.error(t('business_card_scanner.processing_failed') || 'Processing failed');
+            toast.error('Failed to delete group');
         }
-    };
-
-    // Contact actions
-    const handleContactAction = (action, contact) => {
-        switch (action) {
-            case 'email':
-                window.open(`mailto:${contact.email}`, '_blank');
-                break;
-            case 'phone':
-                if (contact.phone) {
-                    window.open(`tel:${contact.phone}`, '_blank');
-                }
-                break;
-            default:
-                break;
-        }
-    };
-
-    const handleEditContact = (contact) => {
-        setEditingContact(contact);
-        setShowEditModal(true);
     };
 
     const handleSaveEditedContact = async (updatedContact) => {
         try {
             await updateContact(updatedContact);
-            toast.success(t('contacts.contact_updated') || 'Contact updated successfully');
-            
-            // Update the contact in the list
-            setContacts(prevContacts => 
-                prevContacts.map(contact => 
-                    contact.id === updatedContact.id ? updatedContact : contact
-                )
-            );
-            
+            toast.success('Contact updated successfully');
+            setContacts(prev => prev.map(c => (c.id === updatedContact.id ? updatedContact : c)));
             setShowEditModal(false);
             setEditingContact(null);
-
-            // Check for auto-grouping opportunities after edit
-            if (autoGroupsEnabled) {
-                setTimeout(() => {
-                    generateAutomaticGroups();
-                }, 1000);
-            }
+            if (autoGroupsEnabled) setTimeout(generateAutomaticGroups, 1000);
         } catch (error) {
-            console.error('Error updating contact:', error);
-            toast.error(t('contacts.failed_to_update') || 'Failed to update contact');
+            toast.error('Failed to update contact');
             throw error;
         }
     };
@@ -433,284 +212,183 @@ export default function EnhancedContactsPage() {
     const handleStatusUpdate = async (contactId, newStatus) => {
         try {
             await updateContactStatus(contactId, newStatus);
-            
-            // Update the contact in the list
-            setContacts(prevContacts => 
-                prevContacts.map(contact => 
-                    contact.id === contactId 
-                        ? { ...contact, status: newStatus, lastModified: new Date().toISOString() }
-                        : contact
-                )
-            );
-            
-            toast.success(t('contacts.status_updated') || 'Status updated');
+            setContacts(prev => prev.map(c => c.id === contactId ? { ...c, status: newStatus, lastModified: new Date().toISOString() } : c));
+            toast.success('Status updated');
         } catch (error) {
-            console.error('Error updating contact status:', error);
-            toast.error(t('contacts.failed_to_update_status') || 'Failed to update status');
+            toast.error('Failed to update status');
         }
     };
 
     const handleDeleteContact = async (contactId) => {
-        if (!confirm(t('contacts.confirm_delete') || 'Are you sure you want to delete this contact?')) {
-            return;
-        }
-
+        if (!confirm('Are you sure you want to delete this contact?')) return;
         try {
             await deleteContact(contactId);
-            
-            // Remove the contact from the list
-            setContacts(prevContacts => 
-                prevContacts.filter(contact => contact.id !== contactId)
-            );
-            
-            toast.success(t('contacts.contact_deleted') || 'Contact deleted');
-
-            // Update groups after contact deletion
+            setContacts(prev => prev.filter(c => c.id !== contactId));
+            toast.success('Contact deleted');
             await loadGroups();
         } catch (error) {
-            console.error('Error deleting contact:', error);
-            toast.error(t('contacts.failed_to_delete') || 'Failed to delete contact');
+            toast.error('Failed to delete contact');
         }
     };
 
-    // Selection mode functions
-    const toggleSelectionMode = () => {
-        setSelectionMode(!selectionMode);
-        setSelectedContacts([]);
+    const saveScannedContact = async (fields) => {
+        try {
+            await createContactFromScan(fields);
+            toast.success('Contact created successfully!');
+            await loadContacts();
+            if (autoGroupsEnabled) setTimeout(generateAutomaticGroups, 1000);
+            setShowReviewModal(false);
+            setScannedFields(null);
+        } catch (error) {
+            toast.error('Failed to save contact');
+            throw error;
+        }
+    };
+    
+    const handleBusinessCardScan = async (imageData) => {
+        if (!subscriptionStatus?.features.includes(CONTACT_FEATURES.BUSINESS_CARD_SCANNER)) {
+            toast.error('Business card scanning requires a higher subscription.');
+            return;
+        }
+        try {
+            toast.loading('Scanning card...', { id: 'scanning-toast' });
+            const result = await scanBusinessCard(imageData);
+            toast.dismiss('scanning-toast');
+            if (result.success) {
+                setScannedFields(result.parsedFields);
+                setShowReviewModal(true);
+                setShowScanner(false);
+                toast.success('Scan complete!');
+            } else {
+                toast.error(result.error || 'Scan failed');
+            }
+        } catch (error) {
+            toast.dismiss('scanning-toast');
+            toast.error('Processing failed');
+        }
     };
 
-    const toggleContactSelection = (contactId) => {
-        setSelectedContacts(prev => 
-            prev.includes(contactId) 
-                ? prev.filter(id => id !== contactId)
-                : [...prev, contactId]
-        );
-    };
-
-    const selectAllContacts = () => {
-        const selectableContacts = filteredContacts.filter(contact => !contact.isSharedContact);
-        setSelectedContacts(selectableContacts.map(contact => contact.id));
-    };
-
-    const clearSelection = () => {
-        setSelectedContacts([]);
-    };
+  
 
     const handleShareSelected = () => {
+        if (!subscriptionStatus?.canShareWithTeam) {
+            toast.error('Team sharing requires a higher subscription.');
+            return;
+        }
         if (selectedContacts.length === 0) {
-            toast.error(t('contacts.select_contacts_to_share') || 'Please select contacts to share');
+            toast.error('Please select contacts to share');
             return;
         }
         setShowShareModal(true);
     };
 
-    // Map functions
     const openContactMap = (contact = null) => {
+        if (!subscriptionStatus?.features.includes(CONTACT_FEATURES.MAP_VISUALIZATION)) {
+            toast.error('Map visualization requires a higher subscription.');
+            return;
+        }
         setSelectedContactForMap(contact);
         setShowMap(true);
     };
 
-    const closeMap = () => {
-        setShowMap(false);
-        setSelectedContactForMap(null);
-    };
-
-    // Load more contacts (pagination)
     const loadMoreContacts = () => {
         if (!loading && pagination.hasMore) {
             loadContacts({ append: true });
         }
     };
 
-    // Get enhanced counts including groups
-    const counts = {
-        all: contactStats.total,
-        new: contactStats.byStatus.new,
-        viewed: contactStats.byStatus.viewed,
-        archived: contactStats.byStatus.archived,
-        groups: contactStats.groupStats.total,
-        withLocation: contactStats.locationStats.withLocation
-    };
-
-    if (loading && contacts.length === 0) {
-        return (
-            <div className="flex items-center justify-center p-8 min-h-[400px]">
-                <div className="flex flex-col items-center space-y-3">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                    <span className="text-sm text-gray-600">
-                        {t('contacts.loading') || 'Loading contacts...'}
-                    </span>
-                </div>
-            </div>
-        );
+    // --- CONDITIONAL RENDERING ---
+    if (subscriptionLoading) {
+        return <div className="flex-1 flex items-center justify-center h-full"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div><span className="ml-3 text-sm">Checking subscription...</span></div>;
+    }
+    if (subscriptionError) {
+        return <div className="flex-1 flex items-center justify-center h-full text-center"><p className="text-red-500 mb-4">⚠️ {subscriptionError}</p></div>;
+    }
+    if (!subscriptionStatus?.canAccessContacts) {
+        return <ContactsUpgradeRequired subscriptionStatus={subscriptionStatus} />;
+    }
+    if (loading && contacts.length === 0 && !searchTerm) {
+        return <div className="flex items-center justify-center p-8 min-h-[400px]"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div></div>;
     }
 
+    const filteredContacts = contacts.filter(contact => {
+        const matchesFilter = filter === 'all' || contact.status === filter;
+        const matchesSearch = !searchTerm || contact.name.toLowerCase().includes(searchTerm.toLowerCase()) || contact.email.toLowerCase().includes(searchTerm.toLowerCase()) || (contact.company && contact.company.toLowerCase().includes(searchTerm.toLowerCase()));
+        let matchesGroup = true;
+        if (selectedGroupIds.length > 0) {
+            matchesGroup = selectedGroupIds.some(groupId => {
+                const group = groups.find(g => g.id === groupId);
+                return group && group.contactIds.includes(contact.id);
+            });
+        }
+        return matchesFilter && matchesSearch && matchesGroup;
+    });
+
+  // FIX 2: Safely access properties using optional chaining (?.) and providing defaults (|| 0).
+    const counts = { 
+        all: contactStats?.total || 0, 
+        new: contactStats?.byStatus?.new || 0, 
+        viewed: contactStats?.byStatus?.viewed || 0, 
+        archived: contactStats?.byStatus?.archived || 0, 
+        groups: contactStats?.groupStats?.total || 0, 
+        withLocation: contactStats?.locationStats?.withLocation || 0
+    };
+    // --- MAIN RENDER ---
     return (
         <div className="flex-1 py-2 flex flex-col max-h-full overflow-y-auto pb-20">
-            {/* Edit Contact Modal */}
-
-               {showTestPanel && (
-                <div className="p-3 sm:p-4 pb-0">
-                    <ContactTestPanel 
-                        onContactsGenerated={handleContactsGenerated}
-                        className="mb-4 shadow-lg border-2 border-orange-200"
-                    />
-                </div>
-            )}
-            <EditContactModal
-                contact={editingContact}
-                isOpen={showEditModal}
-                onClose={() => {
-                    setShowEditModal(false);
-                    setEditingContact(null);
-                }}
-                onSave={handleSaveEditedContact}
-            />
-            
-         
-
-            {/* Group Manager Modal */}
-            <GroupManagerModal
-                isOpen={showGroupManager}
-                onClose={() => setShowGroupManager(false)}
-                groups={groups}
-                contacts={contacts}
-                onCreateGroup={handleGroupCreation}
-                onDeleteGroup={handleDeleteGroup}
-                onGenerateAutoGroups={generateAutomaticGroups}
-                loading={groupsLoading}
-            />
-
-            {/* Enhanced Map Modal */}
-            {showMap && (
-                <div className="fixed inset-0 bg-white z-[9999] flex flex-col md:bg-black md:bg-opacity-50 md:items-center md:justify-center md:p-2">
-                    <div className="bg-white w-full h-full rounded-xl md:shadow-xl md:max-w-[98vw] md:max-h-[90vh] flex flex-col mt-14 md:mt-20">
-                        <div className="flex items-center justify-between p-4 border-b flex-shrink-0 bg-white">
-                            <h2 className="text-lg font-semibold">
-                                {selectedContactForMap 
-                                    ? t('contacts.location_for_contact', { name: selectedContactForMap.name })
-                                    : t('contacts.all_contact_locations')
-                                }
-                            </h2>
-                            <button
-                                onClick={closeMap}
-                                className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
-                            >
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="flex-1 p-2 md:p-4 min-h-0">
-                            <ContactsMap
-                                contacts={selectedContactForMap ? [selectedContactForMap] : contacts.filter(c => c.location?.latitude)}
-                                selectedContact={selectedContactForMap}
-                                groups={groups}
-                                selectedGroupIds={selectedGroupIds}
-                                onGroupToggle={handleGroupToggle}
-                                onCreateGroup={handleGroupCreation}
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
-
+            <EditContactModal contact={editingContact} isOpen={showEditModal} onClose={() => { setShowEditModal(false); setEditingContact(null); }} onSave={handleSaveEditedContact} />
+            <GroupManagerModal isOpen={showGroupManager} onClose={() => setShowGroupManager(false)} groups={groups} contacts={contacts} onCreateGroup={handleGroupCreation} onDeleteGroup={handleDeleteGroup} onGenerateAutoGroups={generateAutomaticGroups} loading={groupsLoading} />
+            {showMap && <div className="fixed inset-0 bg-white z-[9999] flex flex-col md:bg-black md:bg-opacity-50 md:items-center md:justify-center md:p-2"><div className="bg-white w-full h-full rounded-xl md:shadow-xl md:max-w-[98vw] md:max-h-[90vh] flex flex-col mt-14 md:mt-20"><div className="flex items-center justify-between p-4 border-b flex-shrink-0 bg-white"><h2 className="text-lg font-semibold">{selectedContactForMap ? t('contacts.location_for_contact', { name: selectedContactForMap.name }) : t('contacts.all_contact_locations')}</h2><button onClick={() => setShowMap(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button></div><div className="flex-1 p-2 md:p-4 min-h-0"><ContactsMap contacts={selectedContactForMap ? [selectedContactForMap] : contacts.filter(c => c.location?.latitude)} selectedContact={selectedContactForMap} groups={groups} selectedGroupIds={selectedGroupIds} onGroupToggle={(gid) => setSelectedGroupIds(p => p.includes(gid) ? p.filter(id => id !== gid) : [...p, gid])} onCreateGroup={handleGroupCreation} /></div></div></div>}
             <div className="p-3 sm:p-4">
-                {/* Enhanced Header */}
-                <ContactsHeader
-                    teamSharingEnabled={teamSharingEnabled}
-                    selectionMode={selectionMode}
-                    selectedContacts={selectedContacts}
-                    onToggleSelectionMode={toggleSelectionMode}
-                    onSelectAll={selectAllContacts}
-                    onClearSelection={clearSelection}
-                    onShareSelected={handleShareSelected}
-                    onScanCard={() => setShowScanner(true)}
-                    onOpenGroupManager={() => setShowGroupManager(true)}
-                    groupsCount={groups.length}
-                    autoGroupsEnabled={autoGroupsEnabled}
-                    onGenerateAutoGroups={generateAutomaticGroups}
-                    groupsLoading={groupsLoading}
-                    showTestPanel={showTestPanel}
-                    onToggleTestPanel={() => setShowTestPanel(!showTestPanel)}
-                />
-
-                {/* Enhanced Filters */}
-                <MobileFilters
-                    filter={filter}
-                    setFilter={setFilter}
-                    searchTerm={searchTerm}
-                    setSearchTerm={setSearchTerm}
-                    counts={counts}
-                    locationStats={contactStats.locationStats}
-                    onMapView={openContactMap}
-                    groups={groups}
-                    selectedGroupIds={selectedGroupIds}
-                    onGroupToggle={handleGroupToggle}
-                />
-
-                {/* Contacts List */}
-                <ContactsList
-                    contacts={filteredContacts}
-                    selectionMode={selectionMode}
-                    selectedContacts={selectedContacts}
-                    onToggleSelection={toggleContactSelection}
-                    onEdit={handleEditContact}
-                    onStatusUpdate={handleStatusUpdate}
-                    onDelete={handleDeleteContact}
-                    onContactAction={handleContactAction}
-                    onMapView={openContactMap}
-                    hasMore={pagination.hasMore}
-                    onLoadMore={loadMoreContacts}
-                    loading={loading}
-                    groups={groups}
-                />
+                <ContactsHeader subscriptionStatus={subscriptionStatus} teamSharingEnabled={teamSharingEnabled} selectionMode={selectionMode} selectedContacts={selectedContacts} onToggleSelectionMode={() => setSelectionMode(!selectionMode)} onSelectAll={() => setSelectedContacts(filteredContacts.map(c => c.id))} onClearSelection={() => setSelectedContacts([])} onShareSelected={handleShareSelected} onScanCard={() => setShowScanner(true)} onOpenGroupManager={() => setShowGroupManager(true)} groupsCount={groups.length} autoGroupsEnabled={autoGroupsEnabled} onGenerateAutoGroups={generateAutomaticGroups} groupsLoading={groupsLoading}  />
+                <MobileFilters filter={filter} setFilter={setFilter} searchTerm={searchTerm} setSearchTerm={setSearchTerm} counts={counts} locationStats={contactStats.locationStats} onMapView={openContactMap} groups={groups} selectedGroupIds={selectedGroupIds} onGroupToggle={(gid) => setSelectedGroupIds(p => p.includes(gid) ? p.filter(id => id !== gid) : [...p, gid])} />
+                <ContactsList contacts={filteredContacts} selectionMode={selectionMode} selectedContacts={selectedContacts} onToggleSelection={(cid) => setSelectedContacts(p => p.includes(cid) ? p.filter(id => id !== cid) : [...p, cid])} onEdit={(c) => { setEditingContact(c); setShowEditModal(true); }} onStatusUpdate={handleStatusUpdate} onDelete={handleDeleteContact} onContactAction={(action, contact) => { if (action === 'email') window.open(`mailto:${contact.email}`); if (action === 'phone' && contact.phone) window.open(`tel:${contact.phone}`); }} onMapView={openContactMap} hasMore={pagination.hasMore} onLoadMore={loadMoreContacts} loading={loading} groups={groups} />
             </div>
-            
-            {/* Modals */}
-            <ShareContactsModal
-                isOpen={showShareModal}
-                onClose={() => {
-                    setShowShareModal(false);
-                    setSelectionMode(false);
-                    setSelectedContacts([]);
-                }}
-                contacts={contacts}
-                selectedContactIds={selectedContacts}
-                onShare={shareContactsWithTeam}
-                onGetTeamMembers={getTeamMembersForSharing}
-            />
-            
-            <BusinessCardScanner
-                isOpen={showScanner}
-                onClose={() => setShowScanner(false)}
-                onContactParsed={(parsedFields) => {
-                    setScannedFields(parsedFields);
-                    setShowReviewModal(true);
-                    setShowScanner(false);
-                    toast.success(t('business_card_scanner.scan_complete') || 'Scan complete!');
-                }}
-            />
-            
-            <ContactReviewModal
-                isOpen={showReviewModal}
-                onClose={() => {
-                    setShowReviewModal(false);
-                    setScannedFields(null);
-                }}
-                parsedFields={scannedFields}
-                onSave={saveScannedContact}
-            />
+            <ShareContactsModal isOpen={showShareModal} onClose={() => { setShowShareModal(false); setSelectionMode(false); setSelectedContacts([]); }} contacts={contacts} selectedContactIds={selectedContacts} onShare={shareContactsWithTeam} onGetTeamMembers={getTeamMembersForSharing} />
+            <BusinessCardScanner isOpen={showScanner} onClose={() => setShowScanner(false)} onContactParsed={(parsedFields) => { setScannedFields(parsedFields); setShowReviewModal(true); setShowScanner(false); toast.success(t('business_card_scanner.scan_complete') || 'Scan complete!'); }} />
+            <ContactReviewModal isOpen={showReviewModal} onClose={() => { setShowReviewModal(false); setScannedFields(null); }} parsedFields={scannedFields} onSave={saveScannedContact} />
         </div>
     );
 }
 
-// Dynamic import for map component
-const ContactsMap = dynamic(() => import('./components/ContactsMap'), {
-    ssr: false,
-    loading: () => <MapLoadingComponent />
-});
+// --- SUB-COMPONENTS AND UTILS ---
 
+function ContactsUpgradeRequired({ subscriptionStatus }) {
+    const { t } = useTranslation();
+    return (
+        <div className="flex-1 flex items-center justify-center h-full p-8">
+            <div className="max-w-2xl mx-auto text-center">
+                <div className="bg-gradient-to-br from-purple-50 to-blue-100 rounded-3xl p-8 shadow-lg border border-purple-200">
+                    <div className="w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                    </div>
+                    <h1 className="text-3xl font-bold text-gray-900 mb-4">Unlock Contact Management</h1>
+                    <p className="text-lg text-gray-600 mb-6">{getContactUpgradeMessage(CONTACT_FEATURES.BASIC_CONTACTS)}</p>
+                    <div className="inline-flex items-center px-4 py-2 bg-white rounded-full shadow-sm border mb-6">
+                        <span className="text-sm text-gray-500 mr-2">Current plan:</span>
+                        <span className="font-semibold text-gray-900 capitalize">{subscriptionStatus?.subscriptionLevel || 'Base'}</span>
+                    </div>
+                    <div className="bg-white rounded-2xl p-6 mb-8 shadow-sm">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Management Features</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                            {['Store unlimited contacts', 'Business card scanning', 'Smart contact grouping', 'Interactive map visualization', 'Export capabilities', 'Mobile-friendly interface'].map((feature, index) => (
+                                <div key={index} className="flex items-center">
+                                    <svg className="w-5 h-5 text-green-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                    <span className="text-sm text-gray-700">{feature}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                        <button className="px-8 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors duration-200 shadow-md">Upgrade to Pro</button>
+                        <button onClick={() => window.history.back()} className="px-8 py-3 bg-white text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors duration-200 border border-gray-300">Go Back</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+const ContactsMap = dynamic(() => import('./components/ContactsMap'), { ssr: false, loading: () => <div className="h-full w-full flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div></div> });
 // Enhanced Header component with group management
 function ContactsHeader({ 
     teamSharingEnabled, 
@@ -726,14 +404,12 @@ function ContactsHeader({
     autoGroupsEnabled,
     onGenerateAutoGroups,
     groupsLoading,
-    showTestPanel,
-    onToggleTestPanel
 }) {
     const { t } = useTranslation();
 
     return (
         <div className="mb-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <div className="flex-1 min-w-0">
                     <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1 truncate">
                         {t('contacts.title') || 'Contacts'}
@@ -748,131 +424,112 @@ function ContactsHeader({
                     </p>
                 </div>
                 
-                <div className="flex flex-col gap-2 sm:items-end">
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                        {/* Test Panel button */}
-                        <button
-                            onClick={onToggleTestPanel}
-                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors text-sm font-medium whitespace-nowrap flex-shrink-0 ${
-                                showTestPanel 
-                                    ? 'bg-orange-100 border border-orange-300 text-orange-800 hover:bg-orange-150' 
-                                    : 'bg-orange-600 text-white hover:bg-orange-700'
-                            }`}
-                        >
-                            <span>🧪</span>
-                            <span className="hidden xs:inline">
-                                {showTestPanel ? 'Hide Test Panel' : 'Test Panel'}
+                <div className="grid w-full grid-flow-col auto-cols-fr gap-2 sm:w-auto sm:flex-1">
+                    {/* Group Manager button */}
+                    <button
+                        onClick={onOpenGroupManager}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium whitespace-nowrap"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 M11-4 0 2 2 0 014 0z" />
+                        </svg>
+                        <span className="hidden xs:inline">Groups</span>
+                        {groupsCount > 0 && (
+                            <span className="bg-purple-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                                {groupsCount}
                             </span>
-                            <span className="xs:hidden">Test</span>
-                        </button>
-
-                        {/* Group Manager button */}
-                        <button
-                            onClick={onOpenGroupManager}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium whitespace-nowrap flex-shrink-0"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                            </svg>
-                            <span className="hidden xs:inline">Groups</span>
-                            {groupsCount > 0 && (
-                                <span className="bg-purple-500 text-white text-xs px-1.5 py-0.5 rounded-full">
-                                    {groupsCount}
-                                </span>
-                            )}
-                        </button>
-
-                        {/* Auto Groups button */}
-                        {autoGroupsEnabled && (
-                            <button
-                                onClick={onGenerateAutoGroups}
-                                disabled={groupsLoading}
-                                className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors text-sm font-medium whitespace-nowrap flex-shrink-0"
-                            >
-                                {groupsLoading ? (
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                ) : (
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                    </svg>
-                                )}
-                                <span className="hidden xs:inline">🤖 Auto</span>
-                                <span className="xs:hidden">🤖</span>
-                            </button>
                         )}
-                        
-                        {/* Scan card button */}
+                    </button>
+
+                    {/* Auto Groups button */}
+                    {autoGroupsEnabled && (
                         <button
-                            onClick={onScanCard}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium whitespace-nowrap flex-shrink-0"
+                            onClick={onGenerateAutoGroups}
+                            disabled={groupsLoading}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors text-sm font-medium whitespace-nowrap"
                         >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0118.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                            </svg>
-                            <span className="hidden xs:inline">📇 {t('business_card_scanner.scan') || 'Scan'}</span>
-                            <span className="xs:hidden">📇</span>
+                            {groupsLoading ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            ) : (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                            )}
+                            <span className="hidden xs:inline">🤖 Auto</span>
+                            <span className="xs:hidden">🤖</span>
                         </button>
-                        
-                        {/* Team sharing controls */}
-                        {teamSharingEnabled && (
-                            <>
-                                {!selectionMode ? (
+                    )}
+                    
+                    {/* Scan card button */}
+                    <button
+                        onClick={onScanCard}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium whitespace-nowrap"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0118.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        </svg>
+                        <span className="hidden xs:inline">📇 {t('business_card_scanner.scan') || 'Scan'}</span>
+                        <span className="xs:hidden">📇</span>
+                    </button>
+                    
+                    {/* Team sharing controls */}
+                    {teamSharingEnabled && (
+                        <>
+                            {!selectionMode ? (
+                                <button
+                                    onClick={onToggleSelectionMode}
+                                    className="flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
+                                    </svg>
+                                    <span className="hidden sm:inline">{t('contacts.share_with_team') || 'Share with Team'}</span>
+                                    <span className="sm:hidden">{t('contacts.share') || 'Share'}</span>
+                                </button>
+                            ) : (
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-xs text-gray-600 whitespace-nowrap">
+                                        {selectedContacts.length} {t('contacts.selected') || 'selected'}
+                                    </span>
                                     <button
-                                        onClick={onToggleSelectionMode}
-                                        className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap flex-shrink-0"
+                                        onClick={onSelectAll}
+                                        className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors whitespace-nowrap"
                                     >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        {t('contacts.all') || 'All'}
+                                    </button>
+                                    <button
+                                        onClick={onClearSelection}
+                                        className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors whitespace-nowrap"
+                                    >
+                                        {t('contacts.clear') || 'Clear'}
+                                    </button>
+                                    <button
+                                        onClick={onShareSelected}
+                                        disabled={selectedContacts.length === 0}
+                                        className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm flex-shrink-0"
+                                    >
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
                                         </svg>
-                                        <span className="hidden sm:inline">{t('contacts.share_with_team') || 'Share with Team'}</span>
-                                        <span className="sm:hidden">{t('contacts.share') || 'Share'}</span>
+                                        <span>({selectedContacts.length})</span>
                                     </button>
-                                ) : (
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="text-xs text-gray-600 whitespace-nowrap">
-                                            {selectedContacts.length} {t('contacts.selected') || 'selected'}
-                                        </span>
-                                        <button
-                                            onClick={onSelectAll}
-                                            className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors whitespace-nowrap"
-                                        >
-                                            {t('contacts.all') || 'All'}
-                                        </button>
-                                        <button
-                                            onClick={onClearSelection}
-                                            className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors whitespace-nowrap"
-                                        >
-                                            {t('contacts.clear') || 'Clear'}
-                                        </button>
-                                        <button
-                                            onClick={onShareSelected}
-                                            disabled={selectedContacts.length === 0}
-                                            className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm flex-shrink-0"
-                                        >
-                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
-                                            </svg>
-                                            <span>({selectedContacts.length})</span>
-                                        </button>
-                                        <button
-                                            onClick={onToggleSelectionMode}
-                                            className="p-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
+                                    <button
+                                        onClick={onToggleSelectionMode}
+                                        className="p-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    )}
                 </div>
             </div>
         </div>
     );
 }
-
 // Enhanced Mobile filters with group support
 function MobileFilters({ 
     filter, 
@@ -1041,17 +698,6 @@ function MobileFilters({
         </div>
     );
 }
-
-// Helper function to get group colors consistently
-function getGroupColor(groupId, groups) {
-    const colors = [
-        '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
-        '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
-    ];
-    const index = groups.findIndex(g => g.id === groupId);
-    return colors[index % colors.length] || '#6B7280';
-}
-
 // Enhanced Contacts list with group indicators
 function ContactsList({ 
     contacts, 
@@ -1134,7 +780,6 @@ function ContactsList({
         </div>
     );
 }
-
 // Enhanced Contact card with group indicators
 function ContactCard({ contact, onEdit, onStatusUpdate, onDelete, onContactAction, onMapView, groups = [] }) {
     const { t } = useTranslation();
@@ -1290,7 +935,7 @@ function ContactCard({ contact, onEdit, onStatusUpdate, onDelete, onContactActio
                         {/* Message field for non-dynamic contacts */}
                         {!isDynamicContact && contact.message && (
                             <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                                <p className="text-sm text-gray-700 italic">"{contact.message}"</p>
+<p className="text-sm text-gray-700 italic">&quot;{contact.message}&quot;</p>
                             </div>
                         )}
 
@@ -1422,374 +1067,6 @@ function ContactCard({ contact, onEdit, onStatusUpdate, onDelete, onContactActio
         </div>
     );
 }
-
-// Group Manager Modal Component
-function GroupManagerModal({ isOpen, onClose, groups, contacts, onCreateGroup, onDeleteGroup, onGenerateAutoGroups, loading }) {
-    const { t } = useTranslation();
-    const [activeTab, setActiveTab] = useState('overview');
-    const [newGroupName, setNewGroupName] = useState('');
-    const [newGroupType, setNewGroupType] = useState('custom');
-    const [selectedContacts, setSelectedContacts] = useState([]);
-
-    const groupStats = {
-        total: groups.length,
-        custom: groups.filter(g => g.type === 'custom').length,
-        auto: groups.filter(g => g.type === 'auto' || g.type === 'company').length,
-        event: groups.filter(g => g.type === 'event').length
-    };
-
-    const handleCreateGroup = async (e) => {
-        e.preventDefault();
-        if (!newGroupName.trim() || selectedContacts.length === 0) return;
-
-        try {
-            await onCreateGroup({
-                name: newGroupName.trim(),
-                type: newGroupType,
-                contactIds: selectedContacts,
-                description: `${newGroupType === 'custom' ? 'Custom' : 'Auto-generated'} group with ${selectedContacts.length} contacts`
-            });
-            
-            // Reset form
-            setNewGroupName('');
-            setNewGroupType('custom');
-            setSelectedContacts([]);
-            setActiveTab('overview');
-        } catch (error) {
-            // Error handling is done in parent component
-        }
-    };
-
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-                <div className="flex items-center justify-between p-6 border-b">
-                    <h3 className="text-lg font-semibold text-gray-900">📊 Group Manager</h3>
-                    <button
-                        onClick={onClose}
-                        className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-                    >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </div>
-
-                {/* Tabs */}
-                <div className="flex border-b">
-                    <button
-                        onClick={() => setActiveTab('overview')}
-                        className={`px-4 py-2 text-sm font-medium ${
-                            activeTab === 'overview'
-                                ? 'border-b-2 border-purple-500 text-purple-600'
-                                : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                    >
-                        📈 Overview
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('groups')}
-                        className={`px-4 py-2 text-sm font-medium ${
-                            activeTab === 'groups'
-                                ? 'border-b-2 border-purple-500 text-purple-600'
-                                : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                    >
-                        👥 Groups ({groups.length})
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('create')}
-                        className={`px-4 py-2 text-sm font-medium ${
-                            activeTab === 'create'
-                                ? 'border-b-2 border-purple-500 text-purple-600'
-                                : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                    >
-                        ➕ Create Group
-                    </button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-6">
-                    {/* Overview Tab */}
-                    {activeTab === 'overview' && (
-                        <div className="space-y-6">
-                            {/* Statistics */}
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                                    <div className="text-2xl font-bold text-blue-600">{groupStats.total}</div>
-                                    <div className="text-sm text-blue-800">Total Groups</div>
-                                </div>
-                                <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                                    <div className="text-2xl font-bold text-purple-600">{groupStats.custom}</div>
-                                    <div className="text-sm text-purple-800">Custom Groups</div>
-                                </div>
-                                <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                                    <div className="text-2xl font-bold text-green-600">{groupStats.auto}</div>
-                                    <div className="text-sm text-green-800">Auto Groups</div>
-                                </div>
-                                <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
-                                    <div className="text-2xl font-bold text-orange-600">{groupStats.event}</div>
-                                    <div className="text-sm text-orange-800">Event Groups</div>
-                                </div>
-                            </div>
-
-                            {/* Quick Actions */}
-                            <div className="bg-gray-50 rounded-lg p-4">
-                                <h4 className="font-medium text-gray-900 mb-3">Quick Actions</h4>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <button
-                                        onClick={onGenerateAutoGroups}
-                                        disabled={loading}
-                                        className="flex items-center gap-3 p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                                    >
-                                        {loading ? (
-                                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
-                                        ) : (
-                                            <span className="text-lg">🤖</span>
-                                        )}
-                                        <div className="text-left">
-                                            <div className="font-medium text-gray-900">Generate Auto Groups</div>
-                                            <div className="text-sm text-gray-600">Group contacts by company, location, etc.</div>
-                                        </div>
-                                    </button>
-                                    <button
-                                        onClick={() => setActiveTab('create')}
-                                        className="flex items-center gap-3 p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
-                                    >
-                                        <span className="text-lg">➕</span>
-                                        <div className="text-left">
-                                            <div className="font-medium text-gray-900">Create Custom Group</div>
-                                            <div className="text-sm text-gray-600">Manually select contacts for grouping</div>
-                                        </div>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Recent Groups */}
-                            {groups.length > 0 && (
-                                <div>
-                                    <h4 className="font-medium text-gray-900 mb-3">Recent Groups</h4>
-                                    <div className="space-y-2">
-                                        {groups.slice(0, 5).map(group => (
-                                            <div key={group.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
-                                                <div className="flex items-center gap-3">
-                                                    <div 
-                                                        className="w-4 h-4 rounded-full border-2 border-white shadow"
-                                                        style={{ backgroundColor: getGroupColor(group.id, groups) }}
-                                                    />
-                                                    <div>
-                                                        <div className="font-medium text-gray-900">{group.name}</div>
-                                                        <div className="text-sm text-gray-600">
-                                                            {group.contactIds.length} contact{group.contactIds.length !== 1 ? 's' : ''} • 
-                                                            {group.type === 'auto' && ' 🤖 Auto-generated'}
-                                                            {group.type === 'custom' && ' 👥 Custom'}
-                                                            {group.type === 'event' && ' 📅 Event-based'}
-                                                            {group.type === 'company' && ' 🏢 Company'}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <button
-                                                    onClick={() => onDeleteGroup(group.id)}
-                                                    className="p-2 text-red-400 hover:text-red-600 rounded-lg hover:bg-red-50"
-                                                >
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Groups Tab */}
-                    {activeTab === 'groups' && (
-                        <div className="space-y-4">
-                            {groups.length === 0 ? (
-                                <div className="text-center py-8">
-                                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                        </svg>
-                                    </div>
-                                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Groups Yet</h3>
-                                    <p className="text-gray-500 mb-4">Create your first group to organize your contacts</p>
-                                    <button
-                                        onClick={() => setActiveTab('create')}
-                                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-                                    >
-                                        Create First Group
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="grid gap-4">
-                                    {groups.map(group => (
-                                        <div key={group.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                                            <div className="flex items-start justify-between">
-                                                <div className="flex items-center gap-3 flex-1">
-                                                    <div 
-                                                        className="w-6 h-6 rounded-full border-2 border-white shadow flex-shrink-0"
-                                                        style={{ backgroundColor: getGroupColor(group.id, groups) }}
-                                                    />
-                                                    <div className="min-w-0 flex-1">
-                                                        <h4 className="font-medium text-gray-900">{group.name}</h4>
-                                                        <p className="text-sm text-gray-600 mt-1">{group.description}</p>
-                                                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-                                                            <span>{group.contactIds.length} contact{group.contactIds.length !== 1 ? 's' : ''}</span>
-                                                            <span>
-                                                                {group.type === 'auto' && '🤖 Auto-generated'}
-                                                                {group.type === 'custom' && '👥 Custom'}
-                                                                {group.type === 'event' && '📅 Event-based'}
-                                                                {group.type === 'company' && '🏢 Company'}
-                                                            </span>
-                                                            {group.createdAt && (
-                                                                <span>Created {new Date(group.createdAt).toLocaleDateString()}</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <button
-                                                    onClick={() => onDeleteGroup(group.id)}
-                                                    className="p-2 text-red-400 hover:text-red-600 rounded-lg hover:bg-red-50 flex-shrink-0"
-                                                >
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                            
-                                            {/* Group members preview */}
-                                            {group.contactIds.length > 0 && (
-                                                <div className="mt-3 pt-3 border-t border-gray-100">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        {group.contactIds.slice(0, 5).map(contactId => {
-                                                            const contact = contacts.find(c => c.id === contactId);
-                                                            if (!contact) return null;
-                                                            return (
-                                                                <div key={contactId} className="flex items-center gap-1 bg-gray-100 rounded-full px-2 py-1">
-                                                                    <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs">
-                                                                        {contact.name.charAt(0).toUpperCase()}
-                                                                    </div>
-                                                                    <span className="text-xs text-gray-700">{contact.name}</span>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                        {group.contactIds.length > 5 && (
-                                                            <span className="text-xs text-gray-500">
-                                                                +{group.contactIds.length - 5} more
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Create Group Tab */}
-                    {activeTab === 'create' && (
-                        <form onSubmit={handleCreateGroup} className="space-y-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Group Name *
-                                </label>
-                                <input
-                                    type="text"
-                                    value={newGroupName}
-                                    onChange={(e) => setNewGroupName(e.target.value)}
-                                    placeholder="Enter group name..."
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Group Type
-                                </label>
-                                <select
-                                    value={newGroupType}
-                                    onChange={(e) => setNewGroupType(e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                                >
-                                    <option value="custom">👥 Custom Group</option>
-                                    <option value="company">🏢 Company/Organization</option>
-                                    <option value="event">📅 Event-based</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Select Contacts ({selectedContacts.length} selected)
-                                </label>
-                                <div className="border border-gray-300 rounded-lg max-h-64 overflow-y-auto">
-                                    {contacts.map(contact => (
-                                        <label key={contact.id} className="flex items-center p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0">
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedContacts.includes(contact.id)}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedContacts(prev => [...prev, contact.id]);
-                                                    } else {
-                                                        setSelectedContacts(prev => prev.filter(id => id !== contact.id));
-                                                    }
-                                                }}
-                                                className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 mr-3"
-                                            />
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-semibold">
-                                                    {contact.name.charAt(0).toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <div className="font-medium text-gray-900">{contact.name}</div>
-                                                    <div className="text-sm text-gray-600">{contact.email}</div>
-                                                    {contact.company && (
-                                                        <div className="text-xs text-gray-500">{contact.company}</div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="flex gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setNewGroupName('');
-                                        setNewGroupType('custom');
-                                        setSelectedContacts([]);
-                                        setActiveTab('overview');
-                                    }}
-                                    className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={!newGroupName.trim() || selectedContacts.length === 0}
-                                    className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    Create Group ({selectedContacts.length})
-                                </button>
-                            </div>
-                        </form>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-}
-
 // Edit Contact Modal Component (unchanged)
 function EditContactModal({ contact, isOpen, onClose, onSave }) {
     const { t } = useTranslation();
@@ -1972,7 +1249,6 @@ function EditContactModal({ contact, isOpen, onClose, onSave }) {
         </div>
     );
 }
-
 // Field icon helper component
 const FieldIcon = ({ label }) => {
     const l = label.toLowerCase();
@@ -1987,3 +1263,12 @@ const FieldIcon = ({ label }) => {
     if (l.includes('twitter')) return <svg className="w-3 h-3 text-gray-400" viewBox="0 0 1200 1227" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M714.163 519.284L1160.89 0H1055.03L667.137 450.887L357.328 0H0L468.492 681.821L0 1226.37H105.866L515.491 750.218L842.672 1226.37H1200L714.137 519.284H714.163ZM569.165 687.828L521.697 619.934L144.011 79.6904H306.615L611.412 515.685L658.88 583.579L1055.08 1150.31H892.476L569.165 687.854V687.828Z" fill="currentColor"/></svg>;
     return <span className="text-gray-400">📄</span>;
 };
+// Helper function to get group colors consistently
+function getGroupColor(groupId, groups) {
+    const colors = [
+        '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
+        '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
+    ];
+    const index = groups.findIndex(g => g.id === groupId);
+    return colors[index % colors.length] || '#6B7280';
+}
