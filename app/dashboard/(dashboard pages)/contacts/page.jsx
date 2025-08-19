@@ -1,5 +1,5 @@
 "use client"
-
+//app/dashboard/(dashboard pages)/contacts/page.jsx
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from "@/lib/translation/useTranslation";
 import { toast } from 'react-hot-toast';

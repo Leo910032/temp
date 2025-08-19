@@ -12,6 +12,7 @@ import UserList from './components/UserList';
 import UserDetails from './components/UserDetails';
 import StatsCards from './components/StatsCards';
 import AccountTypesBreakdown from './components/AccountTypesBreakdown';
+import AdminEnterprisePanel from './components/AdminEnterprisePanel';
 
 export default function AdminDashboard() {
     const { currentUser } = useAuth();
@@ -27,6 +28,8 @@ export default function AdminDashboard() {
     // Test panel state
     const [showTestPanel, setShowTestPanel] = useState(false);
     const [testPanelLoading, setTestPanelLoading] = useState(false);
+    const [showEnterprisePanel, setShowEnterprisePanel] = useState(false); // <-- NEW STATE
+
     
     const [stats, setStats] = useState({
         total: 0,
@@ -296,6 +299,17 @@ export default function AdminDashboard() {
                 <h2 className="text-2xl font-bold text-gray-900">Admin Dashboard</h2>
                 <div className="flex items-center gap-3">
                     {/* Test Panel Toggle */}
+                     <button
+                        onClick={() => setShowEnterprisePanel(!showEnterprisePanel)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors font-medium ${
+                            showEnterprisePanel 
+                                ? 'bg-purple-100 border border-purple-300 text-purple-800 hover:bg-purple-200' 
+                                : 'bg-purple-600 text-white hover:bg-purple-700'
+                        }`}
+                    >
+                        <span>🏢</span>
+                        {showEnterprisePanel ? 'Hide Enterprise Panel' : 'Show Enterprise Panel'}
+                    </button>
                     <button
                         onClick={() => setShowTestPanel(!showTestPanel)}
                         className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors font-medium ${
@@ -316,6 +330,10 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
+            {/* 4. RENDER THE PANEL CONDITIONALLY */}
+            {showEnterprisePanel && (
+                <AdminEnterprisePanel />
+            )}
             {/* Test Panel Section */}
             {showTestPanel && (
                 <div className="bg-white rounded-lg shadow-lg border-2 border-orange-200 p-6">

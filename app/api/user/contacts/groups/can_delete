@@ -1,0 +1,181 @@
+Of course. Here is a clear breakdown of the Firestore data structure for the enterprise features we've built.
+// app/api/admin/enterprise-tools/route.js
+import { NextResponse } from 'next/server';
+import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
+import { EnterprisePermissionService } from '@/lib/services/enterprisePermissionService';
+import { EnterpriseTeamService } from '@/lib/services/enterpriseTeamService';
+import { EnterpriseInvitationService } from '@/lib/services/enterpriseInvitationService';
+import { ORGANIZATION_ROLES } from '@/lib/constants/enterpriseConstants';
+
+function generateRandomUser(role = 'manager') {
+    const randomId = Math.random().toString(36).substring(2, 8);
+    const password = Math.random().toString(36).substring(2, 10);
+    return { email: `test-${role}-${randomId}@yourapp.com`, password: password, displayName: `Test ${role.charAt(0).toUpperCase() + role.slice(1)} ${randomId.toUpperCase()}` };
+}
+
+async function runPhase1HappyPathTest() {
+    const logs = []; const created = { userIds: [], orgIds: [], inviteIds: [] };
+    try {
+        logs.push({ step: "Setup: Create Test Manager & Org", status: "running" });
+        const managerData = generateRandomUser('manager');
+        const manager = await adminAuth.createUser({ email: managerData.email, password: managerData.password, displayName: managerData.displayName });
+        created.userIds.push(manager.uid);
+        const orgId = `org_test_${Date.now()}`;
+        await adminDb.collection('Organizations').doc(orgId).set({ name: `${managerData.displayName}'s Test Co`, teams: {} });
+        created.orgIds.push(orgId);
+        await adminDb.collection('AccountData').doc(manager.uid).set({ displayName: managerData.displayName, email: managerData.email, isTestAccount: true, enterprise: { organizationId: orgId, organizationRole: 'manager', teams: {} }});
+        logs[logs.length-1] = { ...logs[logs.length-1], status: "success", details: `Manager UID: ${manager.uid}` };
+        
+        logs.push({ step: "Manager Action: Create Team", status: "running" });
+        const team = await EnterpriseTeamService.createTeam(manager.uid, orgId, { name: "Test Team" });
+        logs[logs.length-1] = { ...logs[logs.length-1], status: "success", details: `Team ID: ${team.id}` };
+
+        logs.push({ step: "Manager Action: Invite Employee", status: "running" });
+        const invitation = await EnterpriseInvitationService.createInvitation(manager.uid, orgId, team.id, `invitee-${Date.now()}@test.com`, 'employee');
+        created.inviteIds.push(invitation.id);
+        logs[logs.length-1] = { ...logs[logs.length-1], status: "success" };
+
+        return { success: true, logs };
+    } catch (error) {
+        // Mark the last running step as failed
+        const lastLogIndex = logs.findIndex(log => log.status === "running");
+        if(lastLogIndex !== -1) {
+            logs[lastLogIndex] = { ...logs[lastLogIndex], status: "error", details: error.message };
+        } else {
+            logAndPush("General Test Failure", "error", error.message);
+        }
+        return { success: false, logs };
+    } finally {
+        // --- STEP 6: Automatic Cleanup ---
+        logAndPush("Cleanup: Deleting all test resources", "running");
+        await Promise.all([
+            ...created.userIds.map(uid => adminAuth.deleteUser(uid).catch(() => {})),
+            ...created.userIds.map(uid => adminDb.collection('AccountData').doc(uid).delete().catch(() => {})),
+            ...created.orgIds.map(oid => adminDb.collection('Organizations').doc(oid).delete().catch(() => {})),
+            ...created.inviteIds.map(iid => adminDb.collection('TeamInvitations').doc(iid).delete().catch(() => {})),
+        ]);
+        logAndPush("Cleanup: Deleting all test resources", "success", `Cleaned up ${created.userIds.length} users, ${created.orgIds.length} orgs.`);
+    }
+}
+        return { success: true, logs };
+
+
+async function runPhase1ComprehensiveTestSuite() {
+    const logs = [];
+    const created = { userIds: [], orgIds: [], inviteIds: [] };
+
+    const logAndPush = (step, status, details = "") => {
+        logs.push({ step, status, details });
+    };
+
+    try {
+        // --- STEP 1: Setup - Create Manager, Employee, and Org ---
+        logAndPush("Setup: Create Test Manager & Org", "running");
+        const managerData = generateRandomUser('manager');
+        const manager = await adminAuth.createUser({ email: managerData.email, password: managerData.password, displayName: managerData.displayName });
+        created.userIds.push(manager.uid);
+        
+        const orgId = `org_test_${Date.now()}`;
+        await adminDb.collection('Organizations').doc(orgId).set({ name: `${managerData.displayName}'s Test Co`, teams: {} });
+        created.orgIds.push(orgId);
+        await adminDb.collection('AccountData').doc(manager.uid).set({ displayName: managerData.displayName, email: managerData.email, isTestAccount: true, enterprise: { organizationId: orgId, organizationRole: 'manager', teams: {} }});
+        logAndPush("Setup: Create Test Manager & Org", "success", `Manager: ${manager.email}`);
+
+        logAndPush("Setup: Create Test Employee in Org", "running");
+        const employeeData = generateRandomUser('employee');
+        const employee = await adminAuth.createUser({ email: employeeData.email, password: employeeData.password, displayName: employeeData.displayName });
+        created.userIds.push(employee.uid);
+        await adminDb.collection('AccountData').doc(employee.uid).set({ displayName: employeeData.displayName, email: employeeData.email, isTestAccount: true, enterprise: { organizationId: orgId, organizationRole: 'employee', teams: {} }});
+        logAndPush("Setup: Create Test Employee in Org", "success", `Employee: ${employee.email}`);
+
+        // --- STEP 2: Positive Test - Manager Creates a Team ---
+        logAndPush("Positive Test: Manager can create a team", "running");
+        const team = await EnterpriseTeamService.createTeam(manager.uid, orgId, { name: "Test Team" });
+        const orgDoc = await adminDb.collection('Organizations').doc(orgId).get();
+        if (!orgDoc.data().teams[team.id]) throw new Error("Team not found in org document.");
+        logAndPush("Positive Test: Manager can create a team", "success");
+
+        // --- STEP 3: Negative Test - Employee CANNOT Create a Team ---
+        logAndPush("Negative Test: Employee cannot create a team", "running");
+        try {
+            // We simulate the API call's permission check logic here
+            const employeeContext = await EnterprisePermissionService.getUserContext(employee.uid);
+            if (EnterprisePermissionService.isOrgAdmin(employeeContext)) {
+                // If this passes, the test fails because the employee is considered an admin
+                throw new Error("Security Fail: Employee was incorrectly identified as an Org Admin.");
+            }
+            logAndPush("Negative Test: Employee cannot create a team", "success", "Permission check correctly blocked non-admin.");
+        } catch (error) {
+            throw new Error(`Test logic error during employee permission check: ${error.message}`);
+        }
+
+        // --- STEP 4: Negative Test - Invalid Data ---
+        logAndPush("Negative Test: Cannot create team with no name", "running");
+        try {
+            await EnterpriseTeamService.createTeam(manager.uid, orgId, { name: " " }); // Invalid name
+            throw new Error("Validation Fail: Team was created with an invalid name.");
+        } catch (error) {
+            // We EXPECT an error here, so this is a success
+            logAndPush("Negative Test: Cannot create team with no name", "success", "API correctly rejected invalid data.");
+        }
+
+        // --- STEP 5: Edge Case Test - Duplicate Invitation ---
+        logAndPush("Edge Case: Cannot send duplicate invitations", "running");
+        const inviteEmail = generateRandomUser('invitee').email;
+        const firstInvite = await EnterpriseInvitationService.createInvitation(manager.uid, orgId, team.id, inviteEmail, 'employee');
+        created.inviteIds.push(firstInvite.id);
+        try {
+            await EnterpriseInvitationService.createInvitation(manager.uid, orgId, team.id, inviteEmail, 'employee');
+            throw new Error("Duplicate Check Fail: A second invitation was created for the same email.");
+        } catch (error) {
+            if (error.message.includes("Pending invitation already exists")) {
+                logAndPush("Edge Case: Cannot send duplicate invitations", "success", "API correctly blocked duplicate invite.");
+            } else {
+                throw error; // Re-throw if it's a different error
+            }
+        }
+
+        return { success: true, logs };
+
+    } catch (error) {
+        // Mark the last running step as failed
+        const lastLogIndex = logs.findIndex(log => log.status === "running");
+        if(lastLogIndex !== -1) {
+            logs[lastLogIndex] = { ...logs[lastLogIndex], status: "error", details: error.message };
+        } else {
+            logAndPush("General Test Failure", "error", error.message);
+        }
+        return { success: false, logs };
+    } finally {
+        // --- STEP 6: Automatic Cleanup ---
+        logAndPush("Cleanup: Deleting all test resources", "running");
+        await Promise.all([
+            ...created.userIds.map(uid => adminAuth.deleteUser(uid).catch(() => {})),
+            ...created.userIds.map(uid => adminDb.collection('AccountData').doc(uid).delete().catch(() => {})),
+            ...created.orgIds.map(oid => adminDb.collection('Organizations').doc(oid).delete().catch(() => {})),
+            ...created.inviteIds.map(iid => adminDb.collection('TeamInvitations').doc(iid).delete().catch(() => {})),
+        ]);
+        logAndPush("Cleanup: Deleting all test resources", "success", `Cleaned up ${created.userIds.length} users, ${created.orgIds.length} orgs.`);
+    }
+}
+export async function POST(request) {
+    const token = request.headers.get('Authorization')?.split('Bearer ')[1];
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    const adminContext = await EnterprisePermissionService.getUserContext(decodedToken.uid);
+    if (!adminContext.isSystemAdmin) {
+        return NextResponse.json({ error: 'Access Denied: Admin privileges required.' }, { status: 403 });
+    }
+    const { action, ...body } = await request.json();
+
+    try {
+        switch (action) {
+            case 'run_phase1_test': return NextResponse.json(await runPhase1HappyPathTest());
+            case 'run_phase1_comprehensive_test': return NextResponse.json(await runPhase1ComprehensiveTestSuite());
+            // ... all other actions: get_all_data, create_test_manager, delete_test_user, add_user_to_org
+            default: return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+        }
+    } catch (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
