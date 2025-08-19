@@ -1,16 +1,13 @@
-
-// components/ContactsMap/MapLegend.jsx
+// components/ContactsMap/MapLegend.jsx - Simplified without filters
 import React from 'react';
 
 export function MapLegend({
     isLoaded,
     isMobile,
-    showFilters,
     showLegend,
     setShowLegend,
     groupStats,
     contactCounts,
-    filters,
     onGroupToggle,
     getGroupColor,
     contactsWithLocation
@@ -18,7 +15,7 @@ export function MapLegend({
     if (!isLoaded) return null;
 
     // Desktop Legend
-    if (!isMobile && !showFilters) {
+    if (!isMobile) {
         return (
             <div className="absolute bottom-4 left-4 bg-white p-4 rounded-lg shadow-lg border min-w-64 z-20 max-h-80 overflow-y-auto">
                 <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
@@ -106,9 +103,6 @@ export function MapLegend({
                 <div className="mt-3 pt-3 border-t border-gray-200">
                     <div className="text-xs text-gray-500">
                         Total: {contactCounts.total} contact{contactCounts.total !== 1 ? 's' : ''}
-                        {Object.values(filters).some(f => f !== 'all') && (
-                            <span className="text-blue-600"> (filtered)</span>
-                        )}
                     </div>
                     <div className="text-xs text-purple-600 mt-1">
                         📍 {contactCounts.withLocation} with location data

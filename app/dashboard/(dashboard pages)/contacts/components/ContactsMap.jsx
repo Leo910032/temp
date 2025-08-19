@@ -1,4 +1,4 @@
-// components/ContactsMap.jsx - Main ContactsMap Component (Refactored)
+// components/ContactsMap.jsx - Main ContactsMap Component (Starting with World View)
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
@@ -9,11 +9,8 @@ import { useTranslation } from "@/lib/translation/useTranslation";
 import GroupClusterManager from './ContactsMap/GroupClusterManager';
 import MapControls from './ContactsMap/MapControls';
 import ContactProfileModal from './ContactsMap/ContactProfileModal';
-import GroupCreationModal from './ContactsMap/GroupCreationModal';
 import { MapLegend } from './ContactsMap/MapLegend';
 import { SmartGroupSuggestions } from './ContactsMap/SmartGroupSuggestions';
-import { ZoomIndicator } from './ContactsMap/ZoomIndicator';
-import { MapFilters } from './ContactsMap/MapFilters';
 import { getUniqueCompanies, getGroupColor } from './ContactsMap/utils';
 
 // Cache keys and storage
@@ -41,27 +38,12 @@ export default function ContactsMap({
     const [isLoaded, setIsLoaded] = useState(false);
     const [error, setError] = useState(null);
     const [isMobile, setIsMobile] = useState(false);
-    const [showGroupModal, setShowGroupModal] = useState(false);
-    const [selectedMarkers, setSelectedMarkers] = useState([]);
-    const [isSelectingMode, setIsSelectingMode] = useState(false);
-    const [nearbyEvents, setNearbyEvents] = useState([]);
-    const [loadingEvents, setLoadingEvents] = useState(false);
     const [suggestedGroups, setSuggestedGroups] = useState([]);
     const [showAutoGroupSuggestions, setShowAutoGroupSuggestions] = useState(false);
-    const [currentZoom, setCurrentZoom] = useState(12);
-    const [showFilters, setShowFilters] = useState(false);
+    const [currentZoom, setCurrentZoom] = useState(2); // Start with world view
     const [showLegend, setShowLegend] = useState(false);
     const [selectedContact, setSelectedContact] = useState(null);
     const [showContactProfile, setShowContactProfile] = useState(false);
-    
-    // Filter state
-    const [filters, setFilters] = useState({
-        status: 'all',
-        company: 'all',
-        hasLocation: 'all',
-        hasEvent: 'all',
-        dateRange: 'all'
-    });
 
     // Debug effect to track state changes
     useEffect(() => {
@@ -82,7 +64,7 @@ export default function ContactsMap({
 
     const filteredContacts = useMemo(() => {
         return contacts.filter(contact => {
-            // Group filter
+            // Group filter only
             if (selectedGroupIds.length > 0) {
                 const hasSelectedGroup = selectedGroupIds.some(groupId => {
                     const group = groups.find(g => g.id === groupId);
@@ -91,21 +73,9 @@ export default function ContactsMap({
                 if (!hasSelectedGroup) return false;
             }
 
-            // Apply other filters
-            if (filters.status !== 'all' && contact.status !== filters.status) return false;
-            if (filters.company !== 'all') {
-                if (filters.company === 'no-company' && contact.company) return false;
-                if (filters.company !== 'no-company' && contact.company !== filters.company) return false;
-            }
-            if (filters.hasLocation !== 'all') {
-                const hasLocation = contact.location && contact.location.latitude && contact.location.longitude;
-                if (filters.hasLocation === 'yes' && !hasLocation) return false;
-                if (filters.hasLocation === 'no' && hasLocation) return false;
-            }
-
             return true;
         });
-    }, [contacts, selectedGroupIds, groups, filters]);
+    }, [contacts, selectedGroupIds, groups]);
 
     // Memoized contacts with location
     const contactsWithLocation = useMemo(() => {
@@ -139,7 +109,7 @@ export default function ContactsMap({
         const initializeMap = async () => {
             if (!mapRef.current) return;
             
-            console.log('🗺️ Initializing enhanced map with group clustering');
+            console.log('🗺️ Initializing enhanced map with world view');
 
             try {
                 const loader = new Loader({
@@ -152,38 +122,53 @@ export default function ContactsMap({
 
                 if (!isMounted) return;
 
-                let center = { lat: 40.7128, lng: -74.0060 };
-                let zoom = 12;
-
-                if (contactsWithLocation.length > 0) {
-                    const bounds = new google.maps.LatLngBounds();
-                    contactsWithLocation.forEach(contact => {
-                        bounds.extend({
-                            lat: contact.location.latitude,
-                            lng: contact.location.longitude
-                        });
-                    });
-                    center = bounds.getCenter().toJSON();
-                    
-                    if (filteredGroups.length > 5) {
-                        zoom = 10;
-                    } else if (filteredGroups.length > 0) {
-                        zoom = 12;
-                    } else {
-                        zoom = 14;
-                    }
-                }
+                // CHANGED: Always start with world view
+                const center = { lat: 20, lng: 0 }; // Center of the world
+                const zoom = 2; // World view zoom level
 
                 const map = new Map(mapRef.current, {
                     center,
                     zoom,
                     mapId: 'DEMO_MAP_ID',
                     gestureHandling: 'greedy',
-                    disableDefaultUI: isMobile
+                    disableDefaultUI: true,
+                    zoomControl: false,
+                    mapTypeControl: false,
+                    scaleControl: false,
+                    streetViewControl: false,
+                    rotateControl: false,
+                    fullscreenControl: false,
+                    // Enhanced world view settings
+                    restriction: {
+                        latLngBounds: {
+                            north: 85,
+                            south: -85,
+                            west: -180,
+                            east: 180
+                        },
+                        strictBounds: false
+                    },
+                    minZoom: 2, // Prevent zooming out too far
+                    maxZoom: 20 // Allow detailed zooming
                 });
                 
                 mapInstanceRef.current = map;
                 setCurrentZoom(zoom);
+
+                // Hide Google Maps attribution after map loads
+                map.addListener('tilesloaded', () => {
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        .gm-style-cc,
+                        .gmnoprint,
+                        .gm-style .gm-style-cc,
+                        .gm-style .gmnoprint,
+                        .gm-style .gm-watermark {
+                            display: none !important;
+                        }
+                    `;
+                    document.head.appendChild(style);
+                });
 
                 map.addListener('zoom_changed', () => {
                     const newZoom = map.getZoom();
@@ -226,7 +211,7 @@ export default function ContactsMap({
                 map.addListener('idle', () => {
                     if (isMounted) {
                         setIsLoaded(true);
-                        console.log('✅ Enhanced map with group clustering ready');
+                        console.log('✅ Enhanced map with group clustering ready (World View)');
                     }
                 });
 
@@ -273,22 +258,6 @@ export default function ContactsMap({
 
     // ============= UI INTERACTION FUNCTIONS =============
 
-    const startGroupSelection = useCallback(() => {
-        setIsSelectingMode(true);
-        setSelectedMarkers([]);
-    }, []);
-
-    const cancelGroupSelection = useCallback(() => {
-        setIsSelectingMode(false);
-        setSelectedMarkers([]);
-    }, []);
-
-    const createGroupFromSelection = useCallback(() => {
-        if (selectedMarkers.length > 0) {
-            setShowGroupModal(true);
-        }
-    }, [selectedMarkers.length]);
-
     const acceptAutoGroup = useCallback((suggestion) => {
         if (onGroupCreate) {
             onGroupCreate({
@@ -307,6 +276,31 @@ export default function ContactsMap({
 
     const dismissAutoGroup = useCallback((suggestionId) => {
         setSuggestedGroups(prev => prev.filter(s => s.id !== suggestionId));
+    }, []);
+
+    // NEW: Function to fit map to all contacts
+    const fitToAllContacts = useCallback(() => {
+        if (contactsWithLocation.length > 0 && mapInstanceRef.current) {
+            const bounds = new google.maps.LatLngBounds();
+            contactsWithLocation.forEach(contact => {
+                bounds.extend({
+                    lat: contact.location.latitude,
+                    lng: contact.location.longitude
+                });
+            });
+            
+            mapInstanceRef.current.fitBounds(bounds, {
+                padding: { top: 50, right: 50, bottom: 50, left: 50 }
+            });
+        }
+    }, [contactsWithLocation]);
+
+    // NEW: Function to reset to world view
+    const resetToWorldView = useCallback(() => {
+        if (mapInstanceRef.current) {
+            mapInstanceRef.current.setCenter({ lat: 20, lng: 0 });
+            mapInstanceRef.current.setZoom(2);
+        }
     }, []);
 
     // ============= COMPUTED VALUES =============
@@ -342,7 +336,7 @@ export default function ContactsMap({
                     <div className="flex flex-col items-center space-y-3">
                         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-600"></div>
                         <span className="text-gray-500 text-sm font-medium">
-                            Setting up smart group visualization...
+                            Setting up global contact map...
                         </span>
                         <span className="text-purple-600 text-xs">
                             Loading {contactsWithLocation.length} contacts in {filteredGroups.length} groups
@@ -357,12 +351,33 @@ export default function ContactsMap({
                 ref={mapRef}
             />
 
-            {/* Zoom Level Indicator */}
-            <ZoomIndicator 
-                isLoaded={isLoaded}
-                currentZoom={currentZoom}
-                clusterState={clusterState}
-            />
+            {/* NEW: Navigation Controls */}
+            {isLoaded && (
+                <div className="absolute top-4 left-4 z-30 flex flex-col gap-2">
+                    <button
+                        onClick={fitToAllContacts}
+                        disabled={contactsWithLocation.length === 0}
+                        className="bg-white p-3 rounded-lg shadow-lg border flex items-center gap-2 text-sm font-medium text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Fit to all contacts"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                        <span className="hidden sm:inline">Fit All</span>
+                    </button>
+                    
+                    <button
+                        onClick={resetToWorldView}
+                        className="bg-white p-3 rounded-lg shadow-lg border flex items-center gap-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                        title="Reset to world view"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="hidden sm:inline">World</span>
+                    </button>
+                </div>
+            )}
 
             {/* Smart Group Suggestions */}
             <SmartGroupSuggestions
@@ -374,65 +389,23 @@ export default function ContactsMap({
                 dismissAutoGroup={dismissAutoGroup}
             />
 
-            {/* Map Controls */}
+            {/* Map Controls - Simplified without group creation */}
             <MapControls
                 isLoaded={isLoaded}
                 isMobile={isMobile}
-                isSelectingMode={isSelectingMode}
-                selectedMarkers={selectedMarkers}
-                showFilters={showFilters}
-                setShowFilters={setShowFilters}
-                filters={filters}
-                loadingEvents={loadingEvents}
-                startGroupSelection={startGroupSelection}
-                cancelGroupSelection={cancelGroupSelection}
-                createGroupFromSelection={createGroupFromSelection}
-            />
-
-            {/* Filters Dropdown */}
-            <MapFilters
-                showFilters={showFilters}
-                isLoaded={isLoaded}
-                isMobile={isMobile}
-                filters={filters}
-                setFilters={setFilters}
-                setShowFilters={setShowFilters}
-                getUniqueCompanies={() => getUniqueCompanies(contacts)}
             />
 
             {/* Map Legend */}
             <MapLegend
                 isLoaded={isLoaded}
                 isMobile={isMobile}
-                showFilters={showFilters}
                 showLegend={showLegend}
                 setShowLegend={setShowLegend}
                 groupStats={groupStats}
                 contactCounts={contactCounts}
-                filters={filters}
                 onGroupToggle={onGroupToggle}
                 getGroupColor={(groupId) => getGroupColor(groupId, groups)}
                 contactsWithLocation={contactsWithLocation}
-            />
-
-            {/* Group Creation Modal */}
-            <GroupCreationModal
-                isOpen={showGroupModal}
-                onClose={() => {
-                    setShowGroupModal(false);
-                    setIsSelectingMode(false);
-                    setSelectedMarkers([]);
-                }}
-                selectedContacts={selectedMarkers}
-                nearbyEvents={nearbyEvents}
-                onCreateGroup={(groupData) => {
-                    if (onGroupCreate) {
-                        onGroupCreate(groupData);
-                    }
-                    setShowGroupModal(false);
-                    setIsSelectingMode(false);
-                    setSelectedMarkers([]);
-                }}
             />
 
             {/* Contact Profile Modal */}
@@ -448,14 +421,17 @@ export default function ContactsMap({
                 onContactUpdate={onContactsUpdate}
             />
 
-            {/* Enhanced Helper Text */}
+            {/* Enhanced Helper Text - Updated for world view */}
             {isLoaded && !isMobile && contactsWithLocation.length > 1 && (
-                <div className="absolute bottom-4 right-4 bg-white p-3 rounded-lg shadow border text-xs text-gray-500 max-w-56 z-20">
+                <div className="absolute bottom-4 right-4 bg-white p-3 rounded-lg shadow border text-xs text-gray-500 max-w-64 z-20">
                     <div className="font-medium text-gray-700 mb-1">
-                        💡 Smart Map Guide
+                        🌍 Global Contact Map
                     </div>
-                    {currentZoom < 11 && (
-                        <div>Showing group clusters. Zoom in to see members.</div>
+                    {currentZoom < 4 && (
+                        <div>World view - Zoom in to see contact details.</div>
+                    )}
+                    {currentZoom >= 4 && currentZoom < 11 && (
+                        <div>Regional view - Showing contact clusters by area.</div>
                     )}
                     {currentZoom >= 11 && currentZoom < 14 && (
                         <div>Mixed view: Large groups as clusters, small as individuals.</div>
@@ -465,7 +441,7 @@ export default function ContactsMap({
                     )}
                     <div className="mt-2 pt-2 border-t border-gray-200">
                         <div>🟦 Group clusters • 👤 Individual contacts</div>
-                        <div>Click clusters to zoom in • Click markers for details</div>
+                        <div>Use "Fit All" to see all contacts • "World" to reset</div>
                     </div>
                 </div>
             )}

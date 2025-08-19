@@ -1,7 +1,7 @@
 // components/ContactsMap/GroupClusterManager.js - Group Cluster Manager Class
 export default class GroupClusterManager {
     constructor(map, groups, contacts, options = {}) {
-        console.log('🆕 GroupClusterManager v2.0 constructor called');
+        console.log('🆕 GroupClusterManager v2.2 constructor called');
         this.map = map;
         this.groups = groups;
         this.contacts = contacts;
@@ -14,6 +14,8 @@ export default class GroupClusterManager {
                 groupClusters: 12,  // Below zoom 12: show group clusters
                 individualMarkers: 15 // Above zoom 15: show individual markers
             },
+            // INCREASED: A much larger offset for better visibility at low zoom
+            collisionOffset: 0.015,
             ...options
         };
         
@@ -24,9 +26,8 @@ export default class GroupClusterManager {
     }
 
     async initialize() {
-        console.log('🚀 Initializing group cluster visualization v2.0');
-        console.log('🆕 VERSION 2.0 - Enhanced with detailed logging');
-        console.log('🔍 Current initialization state:', this.isInitialized);
+        console.log('🚀 Initializing group cluster visualization v2.2');
+        console.log('🆕 VERSION 2.2 - Enhanced with Spider-fying Collision Logic');
         
         if (this.isInitialized) {
             console.log('⚠️ Already initialized, skipping...');
@@ -36,7 +37,8 @@ export default class GroupClusterManager {
         // Set up zoom change listener
         this.map.addListener('zoom_changed', () => {
             const newZoom = this.map.getZoom();
-            if (Math.abs(newZoom - this.currentZoom) > 0.5) {
+            // Using a threshold to avoid rapid updates
+            if (Math.abs(newZoom - this.currentZoom) > 0.5) { 
                 this.currentZoom = newZoom;
                 this.updateMarkersForZoom();
             }
@@ -53,6 +55,9 @@ export default class GroupClusterManager {
     async processGroups() {
         const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
         
+        // NEW: A map to track marker counts at each coordinate for spider-fying
+        const positionCounts = new Map();
+
         for (const [index, group] of this.groups.entries()) {
             const groupContacts = this.contacts.filter(contact => 
                 group.contactIds.includes(contact.id)
@@ -66,10 +71,25 @@ export default class GroupClusterManager {
 
             const groupData = this.calculateGroupClusterData(group, contactsWithLocation, index);
             
-            // Create group cluster marker
+            // --- NEW SPIDER-FYING LOGIC ---
+            const originalPosition = groupData.center;
+            // Create a key to group nearly identical coordinates
+            const posKey = `${originalPosition.lat.toFixed(5)},${originalPosition.lng.toFixed(5)}`;
+            
+            const countAtPosition = positionCounts.get(posKey) || 0;
+            
+            const { newPosition, adjusted } = this.getSpiderfiedPosition(originalPosition, countAtPosition);
+            
+            groupData.adjustedPosition = newPosition;
+            groupData.isAdjusted = adjusted;
+
+            // Update the count for this coordinate
+            positionCounts.set(posKey, countAtPosition + 1);
+            // --- END NEW LOGIC ---
+
+            // Create marker using the (potentially adjusted) position
             const groupClusterMarker = await this.createGroupClusterMarker(groupData);
             
-            // Create individual markers for this group
             const individualMarkers = await this.createIndividualMarkersForGroup(groupData);
             
             this.groupMarkers.set(group.id, {
@@ -85,6 +105,31 @@ export default class GroupClusterManager {
             });
         }
     }
+    
+    // NEW: Robust function to spread out overlapping markers
+    getSpiderfiedPosition(position, count) {
+        if (count === 0) {
+            // This is the first marker. Place it at the center.
+            console.log(`📍 Placing first marker for position: ${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`);
+            return { newPosition: position, adjusted: false };
+        }
+        
+        console.log(`💥 Collision #${count} detected at ${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}. Spider-fying...`);
+
+        // Use a spiral formula for ever-increasing separation
+        const angle = count * 0.5;
+        const separation = this.options.collisionOffset * Math.sqrt(count);
+
+        const newPosition = {
+            lat: position.lat + separation * Math.cos(angle),
+            lng: position.lng + separation * Math.sin(angle),
+        };
+
+        console.log(`➡️ Offset applied. New position: ${newPosition.lat.toFixed(5)}, ${newPosition.lng.toFixed(5)}`);
+
+        return { newPosition, adjusted: true };
+    }
+
 
     calculateGroupClusterData(group, contactsWithLocation, colorIndex) {
         const center = this.calculateCenter(contactsWithLocation);
@@ -149,13 +194,14 @@ export default class GroupClusterManager {
     async createGroupClusterMarker(groupData) {
         const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
         
-        const clusterElement = this.createClusterElement(groupData);
+        const clusterElement = this.createClusterElement(groupData, groupData.isAdjusted);
         
         const marker = new AdvancedMarkerElement({
             map: null,
-            position: groupData.center,
+            // Use the adjusted position for the marker
+            position: groupData.adjustedPosition, 
             content: clusterElement,
-            title: `${groupData.group.name} (${groupData.memberCount} members)`,
+            title: `${groupData.group.name} (${groupData.memberCount} members) - Position adjusted: ${groupData.isAdjusted}`,
         });
 
         clusterElement.addEventListener('click', () => {
@@ -165,9 +211,10 @@ export default class GroupClusterManager {
         return marker;
     }
 
-    createClusterElement(groupData) {
+    createClusterElement(groupData, isAdjusted = false) {
         const container = document.createElement('div');
         container.className = 'group-cluster-container';
+        if(isAdjusted) container.title = 'Position adjusted to avoid overlap';
         container.style.cssText = `
             position: relative;
             cursor: pointer;
@@ -176,11 +223,13 @@ export default class GroupClusterManager {
 
         const circle = document.createElement('div');
         circle.className = 'group-cluster-circle';
+        // Add a dashed border if the position was adjusted
+        const borderStyle = isAdjusted ? '3px dashed white' : '3px solid white';
         circle.style.cssText = `
             width: ${Math.max(40, Math.min(80, groupData.memberCount * 8))}px;
             height: ${Math.max(40, Math.min(80, groupData.memberCount * 8))}px;
             background: ${groupData.color};
-            border: 3px solid white;
+            border: ${borderStyle};
             border-radius: 50%;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             display: flex;
@@ -231,8 +280,9 @@ export default class GroupClusterManager {
             border-top-color: white;
         `;
         popup.appendChild(arrow);
-
-        popup.innerHTML = `${groupData.group.name}<br><small>${groupData.memberCount} members</small>` + popup.innerHTML;
+        
+        const popupText = isAdjusted ? `${groupData.group.name} (Position adjusted)` : groupData.group.name;
+        popup.innerHTML = `${popupText}<br><small>${groupData.memberCount} members</small>` + popup.innerHTML;
 
         container.addEventListener('mouseenter', () => {
             circle.style.transform = 'scale(1.1)';
@@ -264,8 +314,11 @@ export default class GroupClusterManager {
                 title: contact.name,
             });
 
-            markerElement.addEventListener('click', () => {
-                this.onContactClick?.(contact);
+            markerElement.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.onContactClick) {
+                    this.onContactClick(contact);
+                }
             });
 
             markers.push({
@@ -349,15 +402,6 @@ export default class GroupClusterManager {
             ${contact.company ? `<div style="font-size: 10px; color: #6B7280;">${contact.company}</div>` : ''}
         ` + popup.innerHTML;
 
-        // FIXED: Bind the click event properly
-        container.addEventListener('click', (e) => {
-            e.stopPropagation();
-            console.log('📍 Marker clicked directly:', contact.name);
-            if (this.onContactClick) {
-                this.onContactClick(contact);
-            }
-        });
-
         container.addEventListener('mouseenter', () => {
             circle.style.transform = 'scale(1.2)';
             popup.style.opacity = '1';
@@ -399,8 +443,11 @@ export default class GroupClusterManager {
                 title: contact.name,
             });
 
-            markerElement.addEventListener('click', () => {
-                this.onContactClick?.(contact);
+            markerElement.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.onContactClick) {
+                    this.onContactClick(contact);
+                }
             });
 
             ungroupedMarkers.push({
@@ -489,15 +536,6 @@ export default class GroupClusterManager {
             <div style="font-size: 10px; color: #9CA3AF;">No group</div>
         ` + popup.innerHTML;
 
-        // FIXED: Bind the click event properly
-        container.addEventListener('click', (e) => {
-            e.stopPropagation();
-            console.log('📍 Ungrouped marker clicked directly:', contact.name);
-            if (this.onContactClick) {
-                this.onContactClick(contact);
-            }
-        });
-
         container.addEventListener('mouseenter', () => {
             circle.style.transform = 'scale(1.2)';
             popup.style.opacity = '1';
@@ -523,58 +561,70 @@ export default class GroupClusterManager {
     }
 
     updateMarkersForZoom() {
+        console.log(`🔄 Updating markers for zoom level: ${this.currentZoom}`);
         const zoom = this.currentZoom;
         const showGroupClusters = zoom < this.options.zoomThresholds.groupClusters;
         const showIndividualMarkers = zoom >= this.options.zoomThresholds.individualMarkers;
         const showMixed = zoom >= this.options.zoomThresholds.groupClusters && zoom < this.options.zoomThresholds.individualMarkers;
 
         if (showGroupClusters) {
+            console.log('📍 Low zoom - showing group clusters');
             this.showGroupClusters();
             this.hideIndividualMarkers();
         } else if (showIndividualMarkers) {
+            console.log('📍 High zoom - showing individual markers');
             this.hideGroupClusters();
             this.showIndividualMarkers();
         } else if (showMixed) {
+            console.log('📍 Medium zoom - showing mixed view');
             this.showMixedView();
         }
     }
 
     showGroupClusters() {
-        this.groupMarkers.forEach((groupInfo, groupId) => {
+        console.log('👁️ Showing group clusters...');
+        let visibleCount = 0;
+        this.groupMarkers.forEach((groupInfo) => {
             if (!groupInfo.visible) {
                 groupInfo.marker.map = this.map;
                 groupInfo.visible = true;
+                visibleCount++;
             }
         });
+        if (visibleCount > 0) console.log(`✅ Displayed ${visibleCount} group clusters.`);
         this.hideIndividualMarkers();
     }
 
     hideGroupClusters() {
-        this.groupMarkers.forEach((groupInfo, groupId) => {
+        console.log('👁️ Hiding group clusters...');
+        let hiddenCount = 0;
+        this.groupMarkers.forEach((groupInfo) => {
             if (groupInfo.visible) {
                 groupInfo.marker.map = null;
                 groupInfo.visible = false;
+                hiddenCount++;
             }
         });
+        if (hiddenCount > 0) console.log(`✅ Hid ${hiddenCount} group clusters.`);
     }
 
     showIndividualMarkers() {
+        console.log('👁️ Showing individual markers...');
         this.individualMarkers.forEach((markerInfo, groupId) => {
             if (!markerInfo.visible) {
-                markerInfo.markers.forEach(({ marker }) => {
-                    marker.map = this.map;
-                });
+                markerInfo.markers.forEach(({ marker }) => marker.map = this.map);
                 markerInfo.visible = true;
+                console.log(`✅ Displayed ${markerInfo.markers.length} individual markers for group: ${groupId}`);
             }
         });
+        this.hideGroupClusters();
     }
 
     hideIndividualMarkers() {
-        this.individualMarkers.forEach((markerInfo, groupId) => {
+        console.log('👁️ Hiding individual markers...');
+        this.individualMarkers.forEach((markerInfo) => {
             if (markerInfo.visible) {
-                markerInfo.markers.forEach(({ marker }) => {
-                    marker.map = null;
-                });
+                markerInfo.markers.forEach(({ marker }) => marker.map = null);
                 markerInfo.visible = false;
             }
         });
@@ -582,38 +632,35 @@ export default class GroupClusterManager {
 
     showMixedView() {
         this.groupMarkers.forEach((groupInfo, groupId) => {
-            const shouldShowCluster = groupInfo.data.memberCount >= 3;
-            
-            if (shouldShowCluster && !groupInfo.visible) {
-                groupInfo.marker.map = this.map;
-                groupInfo.visible = true;
-                
-                const individualInfo = this.individualMarkers.get(groupId);
+            // In mixed view, show a cluster if the group is large, otherwise show individuals
+            const shouldShowCluster = groupInfo.data.memberCount >= 3; 
+            const individualInfo = this.individualMarkers.get(groupId);
+
+            if (shouldShowCluster) {
+                if (!groupInfo.visible) {
+                    groupInfo.marker.map = this.map;
+                    groupInfo.visible = true;
+                }
                 if (individualInfo?.visible) {
-                    individualInfo.markers.forEach(({ marker }) => {
-                        marker.map = null;
-                    });
+                    individualInfo.markers.forEach(({ marker }) => marker.map = null);
                     individualInfo.visible = false;
                 }
-            } else if (!shouldShowCluster && groupInfo.visible) {
-                groupInfo.marker.map = null;
-                groupInfo.visible = false;
-                
-                const individualInfo = this.individualMarkers.get(groupId);
+            } else {
+                if (groupInfo.visible) {
+                    groupInfo.marker.map = null;
+                    groupInfo.visible = false;
+                }
                 if (individualInfo && !individualInfo.visible) {
-                    individualInfo.markers.forEach(({ marker }) => {
-                        marker.map = this.map;
-                    });
+                    individualInfo.markers.forEach(({ marker }) => marker.map = this.map);
                     individualInfo.visible = true;
                 }
             }
         });
 
+        // Always show ungrouped contacts in mixed view
         const ungroupedInfo = this.individualMarkers.get('ungrouped');
         if (ungroupedInfo && !ungroupedInfo.visible) {
-            ungroupedInfo.markers.forEach(({ marker }) => {
-                marker.map = this.map;
-            });
+            ungroupedInfo.markers.forEach(({ marker }) => marker.map = this.map);
             ungroupedInfo.visible = true;
         }
     }
@@ -629,6 +676,7 @@ export default class GroupClusterManager {
     }
 
     async updateData(groups, contacts) {
+        console.log('🔄 Updating data and re-initializing...');
         this.cleanup();
         this.groups = groups;
         this.contacts = contacts;
@@ -649,6 +697,7 @@ export default class GroupClusterManager {
         
         this.groupMarkers.clear();
         this.individualMarkers.clear();
+        console.log('🧹 Cleaned up old markers.');
     }
 
     getState() {
